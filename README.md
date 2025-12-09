@@ -8,7 +8,11 @@ A Linux application for controlling Thermalright LCD displays with an intuitive 
 
 ## Overview
 
-This is a fork of the amazing work by rejeb and others who have done all the really hard work with the reverse engenering of the communications protocols, all I am adding here is aditional functionality to the the GUI and providing a small amount of polish.
+This fork extends the original Thermalright LCD Control project with enhanced GUI features, text effects, and improved usability. The goal is to provide a polished, user-friendly experience for customizing your Thermalright LCD display on Linux.
+
+## Original Project Overview
+
+This is a fork of the amazing work by rejeb and others who have done all the really hard work with the reverse engineering of the communications protocols, all I am adding here is additional functionality to the GUI and providing a small amount of polish.
 
 ## New Features
 - 🖥️ **User-friendly GUI** - Modern interface with unified stylesheet

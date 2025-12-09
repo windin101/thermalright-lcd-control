@@ -8,7 +8,7 @@ from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWidgets import (QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
                                QGroupBox, QLabel, QLineEdit, QPushButton,
                                QSpinBox, QCheckBox, QApplication, QComboBox,
-                               QColorDialog, QFontComboBox)
+                               QColorDialog, QFontComboBox, QFrame)
 from PySide6.QtWidgets import QSlider
 
 from thermalright_lcd_control.gui.widgets.draggable_widget import TextStyleConfig
@@ -443,174 +443,160 @@ class ControlsManager:
 
         # Font, Size, and Colour all on one row
         font_row_layout = QHBoxLayout()
-        font_row_layout.setAlignment(Qt.AlignVCenter)
+        font_row_layout.setSpacing(4)
         
         # Font family selector
-        font_row_layout.addWidget(QLabel("Font:"), alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(QLabel("Font:"))
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(self.text_style.font_family)
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
-        font_row_layout.addWidget(self.font_combo, alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(self.font_combo)
         
         font_row_layout.addSpacing(10)
         
         # Font size
-        font_row_layout.addWidget(QLabel("Size:"), alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(QLabel("Size:"))
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 72)
         self.font_size_spin.setValue(self.text_style.font_size)
         self.font_size_spin.setFixedWidth(60)
         self.font_size_spin.valueChanged.connect(self.parent.on_font_size_changed)
-        font_row_layout.addWidget(self.font_size_spin, alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(self.font_size_spin)
         
         font_row_layout.addSpacing(10)
 
         # Colour
-        colour_label = QLabel("Colour:")
-        font_row_layout.addWidget(colour_label, alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(QLabel("Colour:"))
         self.color_btn = QPushButton()
-        self.color_btn.setFixedSize(60, 26)
+        self.color_btn.setFixedWidth(60)
         self.color_btn.clicked.connect(self.parent.choose_color)
         self.update_color_button()
-        font_row_layout.addWidget(self.color_btn, alignment=Qt.AlignVCenter)
+        font_row_layout.addWidget(self.color_btn)
         
-        font_row_layout.addStretch(1)
+        font_row_layout.addStretch()
         style_layout.addLayout(font_row_layout)
 
-        # Shadow controls row
-        shadow_row = QHBoxLayout()
-        shadow_row.setSpacing(4)
+        # Text effects row - Shadow, Outline, Gradient all on one line
+        effects_row = QHBoxLayout()
+        effects_row.setSpacing(4)
         
-        shadow_row.addWidget(QLabel("Shadow:"))
+        # Shadow controls
+        effects_row.addWidget(QLabel("Shadow:"))
         self.shadow_enabled_checkbox = QCheckBox()
         self.shadow_enabled_checkbox.setChecked(self.text_style.shadow_enabled)
         self.shadow_enabled_checkbox.toggled.connect(self.parent.on_shadow_enabled_changed)
-        shadow_row.addWidget(self.shadow_enabled_checkbox)
-        
-        shadow_row.addWidget(QLabel("Color:"))
+        effects_row.addWidget(self.shadow_enabled_checkbox)
         self.shadow_color_btn = QPushButton()
-        self.shadow_color_btn.setFixedSize(40, 22)
+        self.shadow_color_btn.setFixedWidth(60)
         self.shadow_color_btn.clicked.connect(self.parent.choose_shadow_color)
         self._update_shadow_color_button()
-        shadow_row.addWidget(self.shadow_color_btn)
-        
-        shadow_row.addWidget(QLabel("X:"))
+        effects_row.addWidget(self.shadow_color_btn)
+        effects_row.addWidget(QLabel("X:"))
         self.shadow_x_spin = QSpinBox()
         self.shadow_x_spin.setRange(-20, 20)
         self.shadow_x_spin.setValue(self.text_style.shadow_offset_x)
-        self.shadow_x_spin.setFixedWidth(50)
+        self.shadow_x_spin.setFixedWidth(60)
         self.shadow_x_spin.valueChanged.connect(self.parent.on_shadow_offset_x_changed)
-        shadow_row.addWidget(self.shadow_x_spin)
-        
-        shadow_row.addWidget(QLabel("Y:"))
+        effects_row.addWidget(self.shadow_x_spin)
+        effects_row.addWidget(QLabel("Y:"))
         self.shadow_y_spin = QSpinBox()
         self.shadow_y_spin.setRange(-20, 20)
         self.shadow_y_spin.setValue(self.text_style.shadow_offset_y)
-        self.shadow_y_spin.setFixedWidth(50)
+        self.shadow_y_spin.setFixedWidth(60)
         self.shadow_y_spin.valueChanged.connect(self.parent.on_shadow_offset_y_changed)
-        shadow_row.addWidget(self.shadow_y_spin)
-        
-        shadow_row.addWidget(QLabel("Blur:"))
+        effects_row.addWidget(self.shadow_y_spin)
+        effects_row.addWidget(QLabel("Blur:"))
         self.shadow_blur_spin = QSpinBox()
         self.shadow_blur_spin.setRange(0, 20)
         self.shadow_blur_spin.setValue(self.text_style.shadow_blur)
-        self.shadow_blur_spin.setFixedWidth(50)
+        self.shadow_blur_spin.setFixedWidth(60)
         self.shadow_blur_spin.valueChanged.connect(self.parent.on_shadow_blur_changed)
-        shadow_row.addWidget(self.shadow_blur_spin)
+        effects_row.addWidget(self.shadow_blur_spin)
         
-        shadow_row.addStretch()
-        style_layout.addLayout(shadow_row)
-
-        # Outline controls row
-        outline_row = QHBoxLayout()
-        outline_row.setSpacing(4)
+        effects_row.addSpacing(20)
         
-        outline_row.addWidget(QLabel("Outline:"))
+        # Outline controls
+        effects_row.addWidget(QLabel("Outline:"))
         self.outline_enabled_checkbox = QCheckBox()
         self.outline_enabled_checkbox.setChecked(self.text_style.outline_enabled)
         self.outline_enabled_checkbox.toggled.connect(self.parent.on_outline_enabled_changed)
-        outline_row.addWidget(self.outline_enabled_checkbox)
-        
-        outline_row.addWidget(QLabel("Color:"))
+        effects_row.addWidget(self.outline_enabled_checkbox)
         self.outline_color_btn = QPushButton()
-        self.outline_color_btn.setFixedSize(40, 22)
+        self.outline_color_btn.setFixedWidth(60)
         self.outline_color_btn.clicked.connect(self.parent.choose_outline_color)
         self._update_outline_color_button()
-        outline_row.addWidget(self.outline_color_btn)
-        
-        outline_row.addWidget(QLabel("Width:"))
+        effects_row.addWidget(self.outline_color_btn)
+        effects_row.addWidget(QLabel("W:"))
         self.outline_width_spin = QSpinBox()
         self.outline_width_spin.setRange(1, 10)
         self.outline_width_spin.setValue(self.text_style.outline_width)
-        self.outline_width_spin.setFixedWidth(50)
+        self.outline_width_spin.setFixedWidth(60)
         self.outline_width_spin.valueChanged.connect(self.parent.on_outline_width_changed)
-        outline_row.addWidget(self.outline_width_spin)
+        effects_row.addWidget(self.outline_width_spin)
         
-        outline_row.addStretch()
-        style_layout.addLayout(outline_row)
-
-        # Gradient controls row
-        gradient_row = QHBoxLayout()
-        gradient_row.setSpacing(4)
+        effects_row.addSpacing(20)
         
-        gradient_row.addWidget(QLabel("Gradient:"))
+        # Gradient controls
+        effects_row.addWidget(QLabel("Gradient:"))
         self.gradient_enabled_checkbox = QCheckBox()
         self.gradient_enabled_checkbox.setChecked(self.text_style.gradient_enabled)
         self.gradient_enabled_checkbox.toggled.connect(self.parent.on_gradient_enabled_changed)
-        gradient_row.addWidget(self.gradient_enabled_checkbox)
-        
-        gradient_row.addWidget(QLabel("Color 1:"))
+        effects_row.addWidget(self.gradient_enabled_checkbox)
         self.gradient_color1_btn = QPushButton()
-        self.gradient_color1_btn.setFixedSize(40, 22)
+        self.gradient_color1_btn.setFixedWidth(60)
         self.gradient_color1_btn.clicked.connect(self.parent.choose_gradient_color1)
         self._update_gradient_color1_button()
-        gradient_row.addWidget(self.gradient_color1_btn)
-        
-        gradient_row.addWidget(QLabel("Color 2:"))
+        effects_row.addWidget(self.gradient_color1_btn)
         self.gradient_color2_btn = QPushButton()
-        self.gradient_color2_btn.setFixedSize(40, 22)
+        self.gradient_color2_btn.setFixedWidth(60)
         self.gradient_color2_btn.clicked.connect(self.parent.choose_gradient_color2)
         self._update_gradient_color2_button()
-        gradient_row.addWidget(self.gradient_color2_btn)
-        
-        gradient_row.addWidget(QLabel("Direction:"))
+        effects_row.addWidget(self.gradient_color2_btn)
         self.gradient_direction_combo = QComboBox()
-        self.gradient_direction_combo.addItem("Vertical", "vertical")
-        self.gradient_direction_combo.addItem("Horizontal", "horizontal")
-        self.gradient_direction_combo.addItem("Diagonal", "diagonal")
-        self.gradient_direction_combo.setFixedWidth(90)
+        self.gradient_direction_combo.addItem("V", "vertical")
+        self.gradient_direction_combo.addItem("H", "horizontal")
+        self.gradient_direction_combo.addItem("D", "diagonal")
+        self.gradient_direction_combo.setFixedWidth(60)
         self.gradient_direction_combo.currentIndexChanged.connect(
             lambda: self.parent.on_gradient_direction_changed(self.gradient_direction_combo.currentData()))
-        gradient_row.addWidget(self.gradient_direction_combo)
+        effects_row.addWidget(self.gradient_direction_combo)
         
-        gradient_row.addStretch()
-        style_layout.addLayout(gradient_row)
+        effects_row.addStretch()
+        style_layout.addLayout(effects_row)
 
         return style_group
 
     def _update_shadow_color_button(self):
         """Update shadow color button appearance"""
         color = self.text_style.shadow_color
-        self.shadow_color_btn.setStyleSheet(
-            f"background-color: {color.name()}; border: 1px solid #555;")
+        self.shadow_color_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {color.name()}; border: 1px solid #bdc3c7; 
+                          border-radius: 6px; padding: 5px; }}
+        """)
 
     def _update_outline_color_button(self):
         """Update outline color button appearance"""
         color = self.text_style.outline_color
-        self.outline_color_btn.setStyleSheet(
-            f"background-color: {color.name()}; border: 1px solid #555;")
+        self.outline_color_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {color.name()}; border: 1px solid #bdc3c7; 
+                          border-radius: 6px; padding: 5px; }}
+        """)
 
     def _update_gradient_color1_button(self):
         """Update gradient color 1 button appearance"""
         color = self.text_style.gradient_color1
-        self.gradient_color1_btn.setStyleSheet(
-            f"background-color: {color.name()}; border: 1px solid #555;")
+        self.gradient_color1_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {color.name()}; border: 1px solid #bdc3c7; 
+                          border-radius: 6px; padding: 5px; }}
+        """)
 
     def _update_gradient_color2_button(self):
         """Update gradient color 2 button appearance"""
         color = self.text_style.gradient_color2
-        self.gradient_color2_btn.setStyleSheet(
-            f"background-color: {color.name()}; border: 1px solid #555;")
+        self.gradient_color2_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {color.name()}; border: 1px solid #bdc3c7; 
+                          border-radius: 6px; padding: 5px; }}
+        """)
 
     def _on_font_changed(self, font):
         """Handle font family change"""

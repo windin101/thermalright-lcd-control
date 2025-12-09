@@ -17,6 +17,7 @@ from thermalright_lcd_control.gui.styles import MODERN_STYLESHEET
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
+from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, LabelPosition
 
 
 class MediaPreviewUI(QMainWindow):
@@ -98,6 +99,9 @@ class MediaPreviewUI(QMainWindow):
 
         # Create overlay widgets first
         self.create_overlay_widgets()
+
+        # Initialize widget configs for preview rendering
+        self.update_preview_widget_configs()
 
         # Controls (now that metric_widgets exists) - takes remaining space
         self.controls_manager = ControlsManager(self, self.text_style, self.metric_widgets)
@@ -797,12 +801,15 @@ class MediaPreviewUI(QMainWindow):
             self.text_style.color = color
             self.controls_manager.update_color_button()
             self.apply_style_to_all_widgets()
+            self.update_preview_widget_configs()
 
     # Shadow handlers
     def on_shadow_enabled_changed(self, enabled):
         """Handle shadow enabled toggle"""
         self.text_style.shadow_enabled = enabled
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def choose_shadow_color(self):
         """Open shadow color chooser dialog"""
@@ -811,27 +818,37 @@ class MediaPreviewUI(QMainWindow):
             self.text_style.shadow_color = color
             self.controls_manager._update_shadow_color_button()
             self.apply_style_to_all_widgets()
+            if self.preview_manager:
+                self.preview_manager.update_text_effects()
 
     def on_shadow_offset_x_changed(self, value):
         """Handle shadow X offset change"""
         self.text_style.shadow_offset_x = value
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def on_shadow_offset_y_changed(self, value):
         """Handle shadow Y offset change"""
         self.text_style.shadow_offset_y = value
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def on_shadow_blur_changed(self, value):
         """Handle shadow blur change"""
         self.text_style.shadow_blur = value
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     # Outline handlers
     def on_outline_enabled_changed(self, enabled):
         """Handle outline enabled toggle"""
         self.text_style.outline_enabled = enabled
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def choose_outline_color(self):
         """Open outline color chooser dialog"""
@@ -840,17 +857,23 @@ class MediaPreviewUI(QMainWindow):
             self.text_style.outline_color = color
             self.controls_manager._update_outline_color_button()
             self.apply_style_to_all_widgets()
+            if self.preview_manager:
+                self.preview_manager.update_text_effects()
 
     def on_outline_width_changed(self, value):
         """Handle outline width change"""
         self.text_style.outline_width = value
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     # Gradient handlers
     def on_gradient_enabled_changed(self, enabled):
         """Handle gradient enabled toggle"""
         self.text_style.gradient_enabled = enabled
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def choose_gradient_color1(self):
         """Open gradient color 1 chooser dialog"""
@@ -859,6 +882,8 @@ class MediaPreviewUI(QMainWindow):
             self.text_style.gradient_color1 = color
             self.controls_manager._update_gradient_color1_button()
             self.apply_style_to_all_widgets()
+            if self.preview_manager:
+                self.preview_manager.update_text_effects()
 
     def choose_gradient_color2(self):
         """Open gradient color 2 chooser dialog"""
@@ -867,11 +892,15 @@ class MediaPreviewUI(QMainWindow):
             self.text_style.gradient_color2 = color
             self.controls_manager._update_gradient_color2_button()
             self.apply_style_to_all_widgets()
+            if self.preview_manager:
+                self.preview_manager.update_text_effects()
 
     def on_gradient_direction_changed(self, direction):
         """Handle gradient direction change"""
         self.text_style.gradient_direction = direction
         self.apply_style_to_all_widgets()
+        if self.preview_manager:
+            self.preview_manager.update_text_effects()
 
     def on_rotation_changed(self, rotation):
         """Handle rotation change"""
@@ -938,6 +967,94 @@ class MediaPreviewUI(QMainWindow):
                 label = self.controls_manager.metric_position_labels.get(widget_name)
                 if label:
                     label.setText(f"({device_x}, {device_y})")
+        
+        # Update preview with new widget positions
+        self.update_preview_widget_configs()
+
+    def collect_widget_configs(self):
+        """Collect all widget configs for PIL rendering in preview"""
+        # Helper to convert QColor to RGBA tuple
+        def qcolor_to_rgba(qcolor):
+            return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+        
+        text_color = qcolor_to_rgba(self.text_style.color)
+        
+        # Date config
+        date_config = None
+        if hasattr(self, 'date_widget') and self.date_widget and self.date_widget.enabled:
+            pos = self.date_widget.pos()
+            device_x = int(pos.x() / self.preview_scale)
+            device_y = int(pos.y() / self.preview_scale)
+            date_config = DateConfig(
+                position=(device_x, device_y),
+                font_size=self.date_widget.get_font_size(),
+                color=text_color,
+                enabled=True,
+                show_weekday=self.date_widget.get_show_weekday(),
+                show_year=self.date_widget.get_show_year(),
+                date_format=self.date_widget.get_date_format()
+            )
+        
+        # Time config
+        time_config = None
+        if hasattr(self, 'time_widget') and self.time_widget and self.time_widget.enabled:
+            pos = self.time_widget.pos()
+            device_x = int(pos.x() / self.preview_scale)
+            device_y = int(pos.y() / self.preview_scale)
+            time_config = TimeConfig(
+                position=(device_x, device_y),
+                font_size=self.time_widget.get_font_size(),
+                color=text_color,
+                enabled=True,
+                use_24_hour=self.time_widget.get_use_24_hour(),
+                show_seconds=self.time_widget.get_show_seconds(),
+                show_am_pm=self.time_widget.get_show_am_pm()
+            )
+        
+        # Metrics configs
+        metrics_configs = []
+        if hasattr(self, 'metric_widgets'):
+            for metric_name, widget in self.metric_widgets.items():
+                if widget and widget.enabled:
+                    pos = widget.pos()
+                    device_x = int(pos.x() / self.preview_scale)
+                    device_y = int(pos.y() / self.preview_scale)
+                    
+                    # Map label position string to LabelPosition enum
+                    label_pos_map = {
+                        'left': LabelPosition.LEFT,
+                        'right': LabelPosition.RIGHT,
+                        'above': LabelPosition.ABOVE,
+                        'below': LabelPosition.BELOW,
+                        'none': LabelPosition.NONE
+                    }
+                    label_pos = label_pos_map.get(widget.get_label_position(), LabelPosition.LEFT)
+                    
+                    metrics_configs.append(MetricConfig(
+                        name=metric_name,
+                        label=widget.get_label(),
+                        position=(device_x, device_y),
+                        font_size=widget.get_font_size(),
+                        label_font_size=widget.get_label_font_size(),
+                        color=text_color,
+                        unit=widget.get_unit(),
+                        enabled=True,
+                        label_position=label_pos
+                    ))
+        
+        return date_config, time_config, metrics_configs
+
+    def update_preview_widget_configs(self):
+        """Update preview manager with current widget configs"""
+        if not self.preview_manager:
+            return
+        
+        date_config, time_config, metrics_configs = self.collect_widget_configs()
+        self.preview_manager.update_widget_configs(
+            date_config=date_config,
+            time_config=time_config,
+            metrics_configs=metrics_configs
+        )
 
     def on_foreground_dragged(self, x, y):
         """Handle foreground widget being dragged in preview"""
@@ -975,6 +1092,7 @@ class MediaPreviewUI(QMainWindow):
         """Handle global font size change"""
         self.text_style.font_size = size
         self.apply_style_to_all_widgets()
+        self.update_preview_widget_configs()
 
     def on_font_family_changed(self, font_family):
         """Handle font family change"""
@@ -983,6 +1101,7 @@ class MediaPreviewUI(QMainWindow):
         # Update the preview manager's text style for config generation
         if self.preview_manager:
             self.preview_manager.text_style.font_family = font_family
+        self.update_preview_widget_configs()
 
     def on_widget_font_size_changed(self, widget_name, size):
         """Handle individual widget font size change"""
@@ -990,16 +1109,19 @@ class MediaPreviewUI(QMainWindow):
             self.date_widget.set_font_size(size)
         elif widget_name == 'time' and self.time_widget:
             self.time_widget.set_font_size(size)
+        self.update_preview_widget_configs()
 
     def on_metric_font_size_changed(self, metric_name, size):
         """Handle individual metric font size change"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_font_size(size)
+        self.update_preview_widget_configs()
 
     def on_metric_label_font_size_changed(self, metric_name, size):
         """Handle individual metric label font size change"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_label_font_size(size)
+        self.update_preview_widget_configs()
 
     # Free text widget handlers
     def on_text_toggled(self, text_name, enabled):
@@ -1046,27 +1168,32 @@ class MediaPreviewUI(QMainWindow):
         """Handle show date checkbox change"""
         if self.date_widget:
             self.date_widget.set_enabled(checked)
+            self.update_preview_widget_configs()
 
     def on_show_time_changed(self, checked):
         """Handle show time checkbox change"""
         if self.time_widget:
             self.time_widget.set_enabled(checked)
+            self.update_preview_widget_configs()
 
     # Date format options
     def on_date_format_changed(self, format_type):
         """Handle date format change"""
         if self.date_widget:
             self.date_widget.set_date_format(format_type)
+            self.update_preview_widget_configs()
 
     def on_show_weekday_changed(self, checked):
         """Handle show weekday checkbox change"""
         if self.date_widget:
             self.date_widget.set_show_weekday(checked)
+            self.update_preview_widget_configs()
 
     def on_show_year_changed(self, checked):
         """Handle show year checkbox change"""
         if self.date_widget:
             self.date_widget.set_show_year(checked)
+            self.update_preview_widget_configs()
 
     # Time format options
     def on_use_24_hour_changed(self, checked):
@@ -1076,43 +1203,51 @@ class MediaPreviewUI(QMainWindow):
             # Disable AM/PM when using 24-hour format
             if hasattr(self.controls_manager, 'show_am_pm_checkbox'):
                 self.controls_manager.show_am_pm_checkbox.setEnabled(not checked)
+            self.update_preview_widget_configs()
 
     def on_show_seconds_changed(self, checked):
         """Handle show seconds checkbox change"""
         if self.time_widget:
             self.time_widget.set_show_seconds(checked)
+            self.update_preview_widget_configs()
 
     def on_show_am_pm_changed(self, checked):
         """Handle show AM/PM checkbox change"""
         if self.time_widget:
             self.time_widget.set_show_am_pm(checked)
+            self.update_preview_widget_configs()
 
     def on_metric_toggled(self, metric_name, checked):
         """Handle metric checkbox toggle"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_enabled(checked)
+            self.update_preview_widget_configs()
 
     def on_metric_label_changed(self, metric_name, text):
         """Handle metric label change"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_custom_label(text.strip())
+            self.update_preview_widget_configs()
 
     def on_metric_unit_changed(self, metric_name, text):
         """Handle metric unit change"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_custom_unit(text.strip())
+            self.update_preview_widget_configs()
 
     def on_metric_freq_format_changed(self, metric_name, format_type):
         """Handle metric frequency format change (MHz/GHz)"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_freq_format(format_type)
             self.logger.debug(f"Metric {metric_name} frequency format changed to {format_type}")
+            self.update_preview_widget_configs()
 
     def on_metric_label_position_changed(self, metric_name, position):
         """Handle metric label position change"""
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_label_position(position)
             self.logger.debug(f"Metric {metric_name} label position changed to {position}")
+            self.update_preview_widget_configs()
 
     def on_collection_created(self, collection_path):
         """Handle collection creation"""

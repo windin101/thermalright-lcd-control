@@ -198,52 +198,25 @@ class DraggableWidget(QLabel):
         self.adjustSize()
 
     def _get_stylesheet(self) -> str:
-        """Get stylesheet with individual or global font size and drag state styling"""
+        """Get stylesheet with individual or global font size and drag state styling.
+        
+        Text is rendered transparently (invisible) by default so that the PIL-rendered
+        text with proper effects shows through. Only on hover/drag do we show a subtle
+        text color for positioning feedback.
+        """
         font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
         
         # Use outline instead of border - outline doesn't affect layout/positioning
+        # Text is transparent normally, slightly visible on hover/drag for feedback
         if self.dragging:
             outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
+            text_color = "rgba(231, 76, 60, 0.7)"  # Semi-transparent red for positioning
         elif self._is_hovered:
             outline_style = "outline: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.15);"
+            text_color = "rgba(52, 152, 219, 0.5)"  # Semi-transparent blue for hover
         else:
             outline_style = "outline: none; background-color: transparent;"
-        
-        # Build text color - use gradient if enabled, otherwise solid color
-        if self.text_style.gradient_enabled:
-            # Qt QLabel doesn't support CSS gradients for text directly
-            # We'll use the primary gradient color for preview, actual gradient in renderer
-            text_color = self.text_style.gradient_color1.name()
-        else:
-            text_color = self.text_style.color.name()
-        
-        # Build shadow/outline effects
-        # Note: Qt supports a simplified text-shadow, we'll simulate outline with multiple shadows
-        effects = []
-        
-        if self.text_style.shadow_enabled:
-            shadow_color = self.text_style.shadow_color.name()
-            sx = self.text_style.shadow_offset_x
-            sy = self.text_style.shadow_offset_y
-            effects.append(f"{sx}px {sy}px {shadow_color}")
-        
-        if self.text_style.outline_enabled:
-            outline_color = self.text_style.outline_color.name()
-            w = self.text_style.outline_width
-            # Create outline effect using multiple shadows in all directions
-            effects.extend([
-                f"{-w}px {-w}px 0 {outline_color}",
-                f"{w}px {-w}px 0 {outline_color}",
-                f"{-w}px {w}px 0 {outline_color}",
-                f"{w}px {w}px 0 {outline_color}",
-                f"0px {-w}px 0 {outline_color}",
-                f"0px {w}px 0 {outline_color}",
-                f"{-w}px 0px 0 {outline_color}",
-                f"{w}px 0px 0 {outline_color}"
-            ])
-        
-        # Note: Qt's QLabel doesn't fully support text-shadow CSS property
-        # The effects will show properly in the LCD renderer using PIL
+            text_color = "transparent"  # Text is invisible - PIL renders the actual text
         
         return f"""
             {outline_style}
@@ -812,7 +785,10 @@ class MetricWidget(DraggableWidget):
         self.update_display()
 
     def _get_rich_text_stylesheet(self) -> str:
-        """Get base stylesheet for rich text (font size handled in HTML)"""
+        """Get base stylesheet for rich text (font size handled in HTML).
+        
+        Text is transparent by default so PIL-rendered text with effects shows through.
+        """
         # Use outline instead of border - outline doesn't affect layout/positioning
         if self.dragging:
             outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
@@ -828,16 +804,27 @@ class MetricWidget(DraggableWidget):
         """
 
     def _format_rich_text(self) -> str:
-        """Format display text with separate font sizes for label and value using HTML"""
+        """Format display text with separate font sizes for label and value using HTML.
+        
+        Text color is transparent normally so PIL-rendered text shows through.
+        Only visible on hover/drag for positioning feedback.
+        """
         label = self.custom_label if self.custom_label else ""
         value = self.get_value()
         unit = self.get_unit()
         
         value_font_size = self.get_font_size()
         label_font_size = self.get_label_font_size()
-        color = self.text_style.color.name()
         font_family = self.text_style.font_family
         font_weight = 'bold' if self.text_style.bold else 'normal'
+        
+        # Determine text color based on hover/drag state
+        if self.dragging:
+            color = "rgba(231, 76, 60, 0.7)"  # Semi-transparent red for positioning
+        elif self._is_hovered:
+            color = "rgba(52, 152, 219, 0.5)"  # Semi-transparent blue for hover
+        else:
+            color = "transparent"  # Invisible - PIL renders the actual text
         
         # Build styled spans
         label_style = f"font-family: {font_family}; font-size: {label_font_size}px; font-weight: {font_weight}; color: {color};"

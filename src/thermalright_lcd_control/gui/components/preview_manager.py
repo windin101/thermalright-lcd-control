@@ -4,12 +4,15 @@
 """Preview manager for display generation and frame updates"""
 
 from pathlib import Path
+from typing import List, Optional
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import QLabel
 
-from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType
+from thermalright_lcd_control.device_controller.display.config import (
+    DisplayConfig, BackgroundType, DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition
+)
 from thermalright_lcd_control.device_controller.display.generator import DisplayGenerator
 
 
@@ -39,6 +42,12 @@ class PreviewManager:
         self.foreground_position = (0, 0)
         self.current_rotation = 0
         self.background_scale_mode = "stretch"  # Default scaling mode
+
+        # Widget configs for PIL rendering
+        self.date_config: Optional[DateConfig] = None
+        self.time_config: Optional[TimeConfig] = None
+        self.metrics_configs: List[MetricConfig] = []
+        self.text_configs: List[TextConfig] = []
 
         # Components
         self.display_generator = None
@@ -107,6 +116,10 @@ class PreviewManager:
             # Only pass foreground path if foreground is enabled
             foreground_path = self.current_foreground_path if self.foreground_enabled else None
             
+            # Convert QColor to RGBA tuple for text effects
+            def qcolor_to_rgba(qcolor):
+                return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+            
             # Use device dimensions for generator (actual output resolution)
             display_config = DisplayConfig(
                 background_path=self.current_background_path,
@@ -121,7 +134,24 @@ class PreviewManager:
                 global_font_path=self.text_style.font_family,
                 foreground_image_path=foreground_path,
                 foreground_position=self.foreground_position,
-                foreground_alpha=self.foreground_opacity
+                foreground_alpha=self.foreground_opacity,
+                # Widget configs for text rendering
+                date_config=self.date_config,
+                time_config=self.time_config,
+                metrics_configs=self.metrics_configs if self.metrics_configs else [],
+                # Text effects from text_style
+                shadow_enabled=self.text_style.shadow_enabled,
+                shadow_color=qcolor_to_rgba(self.text_style.shadow_color),
+                shadow_offset_x=self.text_style.shadow_offset_x,
+                shadow_offset_y=self.text_style.shadow_offset_y,
+                shadow_blur=self.text_style.shadow_blur,
+                outline_enabled=self.text_style.outline_enabled,
+                outline_color=qcolor_to_rgba(self.text_style.outline_color),
+                outline_width=self.text_style.outline_width,
+                gradient_enabled=self.text_style.gradient_enabled,
+                gradient_color1=qcolor_to_rgba(self.text_style.gradient_color1),
+                gradient_color2=qcolor_to_rgba(self.text_style.gradient_color2),
+                gradient_direction=self.text_style.gradient_direction
             )
 
             if self.display_generator:
@@ -264,6 +294,78 @@ class PreviewManager:
     def get_background_scale_mode(self) -> str:
         """Get current background scaling mode"""
         return self.background_scale_mode
+
+    def update_text_effects(self):
+        """Update text effects in the display generator from current text_style"""
+        if self.display_generator and self.display_generator.config:
+            config = self.display_generator.config
+            
+            # Convert QColor to RGBA tuple
+            def qcolor_to_rgba(qcolor):
+                return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+            
+            # Update shadow settings
+            config.shadow_enabled = self.text_style.shadow_enabled
+            config.shadow_color = qcolor_to_rgba(self.text_style.shadow_color)
+            config.shadow_offset_x = self.text_style.shadow_offset_x
+            config.shadow_offset_y = self.text_style.shadow_offset_y
+            config.shadow_blur = self.text_style.shadow_blur
+            
+            # Update outline settings
+            config.outline_enabled = self.text_style.outline_enabled
+            config.outline_color = qcolor_to_rgba(self.text_style.outline_color)
+            config.outline_width = self.text_style.outline_width
+            
+            # Update gradient settings
+            config.gradient_enabled = self.text_style.gradient_enabled
+            config.gradient_color1 = qcolor_to_rgba(self.text_style.gradient_color1)
+            config.gradient_color2 = qcolor_to_rgba(self.text_style.gradient_color2)
+            config.gradient_direction = self.text_style.gradient_direction
+            
+            # IMPORTANT: Also update the TextRenderer's display_config reference
+            # The TextRenderer stores its own reference to display_config, so we need
+            # to update it there as well for the effects to actually render
+            if hasattr(self.display_generator, 'text_renderer'):
+                self.display_generator.text_renderer.display_config = config
+            
+            # Trigger immediate preview refresh to show the changes
+            self.update_preview_frame()
+        else:
+            # Recreate generator if config not available
+            self.create_display_generator()
+
+    def update_widget_configs(self, date_config: Optional[DateConfig] = None, 
+                              time_config: Optional[TimeConfig] = None,
+                              metrics_configs: Optional[List[MetricConfig]] = None,
+                              text_configs: Optional[List[TextConfig]] = None,
+                              force_update: bool = True):
+        """Update widget configs and refresh the preview.
+        
+        Args:
+            date_config: Date configuration (None means disabled)
+            time_config: Time configuration (None means disabled)
+            metrics_configs: List of metric configurations (empty list means all disabled)
+            text_configs: List of text configurations
+            force_update: If True, always update configs even if None (for disabling widgets)
+        """
+        # Always update configs - None means widget is disabled
+        if force_update or date_config is not None:
+            self.date_config = date_config
+        if force_update or time_config is not None:
+            self.time_config = time_config
+        if force_update or metrics_configs is not None:
+            self.metrics_configs = metrics_configs if metrics_configs else []
+        if force_update or text_configs is not None:
+            self.text_configs = text_configs if text_configs else []
+        
+        # Update configs in existing generator
+        if self.display_generator and self.display_generator.config:
+            self.display_generator.config.date_config = self.date_config
+            self.display_generator.config.time_config = self.time_config
+            self.display_generator.config.metrics_configs = self.metrics_configs
+            self.update_preview_frame()
+        else:
+            self.create_display_generator()
 
     def clear_background(self, backgrounds_dir: str):
         """Clear background media"""

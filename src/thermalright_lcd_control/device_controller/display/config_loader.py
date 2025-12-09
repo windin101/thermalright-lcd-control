@@ -165,6 +165,14 @@ class ConfigLoader:
         
         # Parse background alpha (default to 1.0 if not specified)
         background_alpha = display_data.get("background", {}).get("alpha", 1.0)
+        
+        # Parse background color (default to black if not specified)
+        bg_color_data = display_data.get("background", {}).get("color", {})
+        background_color = (
+            bg_color_data.get("r", 0),
+            bg_color_data.get("g", 0),
+            bg_color_data.get("b", 0)
+        )
 
         # Parse text effects (shadow, outline, gradient)
         text_effects = display_data.get("text_effects", {})
@@ -195,6 +203,7 @@ class ConfigLoader:
             background_type=BackgroundType(display_data["background"]["type"]),
             background_scale_mode=background_scale_mode,
             background_alpha=background_alpha,
+            background_color=background_color,
             foreground_image_path=foreground_path,
             foreground_position=foreground_position,
             foreground_alpha=foreground_alpha,

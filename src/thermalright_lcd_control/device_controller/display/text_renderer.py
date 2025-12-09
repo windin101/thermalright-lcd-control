@@ -53,14 +53,22 @@ class TextRenderer:
             if self.display_config.shadow_blur > 0:
                 # Create shadow on temporary image for blur effect
                 bbox = draw.textbbox(position, text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                
+                # Calculate offset from position to bbox top-left
+                offset_x = bbox[0] - x
+                offset_y = bbox[1] - y
+                
                 padding = self.display_config.shadow_blur * 2 + abs(self.display_config.shadow_offset_x) + abs(self.display_config.shadow_offset_y)
-                shadow_img = Image.new('RGBA', (bbox[2] - bbox[0] + padding * 2, bbox[3] - bbox[1] + padding * 2), (0, 0, 0, 0))
+                shadow_img = Image.new('RGBA', (text_width + padding * 2, text_height + padding * 2), (0, 0, 0, 0))
                 shadow_draw = ImageDraw.Draw(shadow_img)
-                shadow_draw.text((padding, padding), text, fill=shadow_color, font=font)
+                # Draw text at padding offset, accounting for bbox offset
+                shadow_draw.text((padding - offset_x, padding - offset_y), text, fill=shadow_color, font=font)
                 shadow_img = shadow_img.filter(ImageFilter.GaussianBlur(radius=self.display_config.shadow_blur))
-                # Paste shadow onto main image
-                paste_x = shadow_x - padding + (bbox[0] - x)
-                paste_y = shadow_y - padding + (bbox[1] - y)
+                # Paste shadow onto main image at correct position
+                paste_x = shadow_x + offset_x - padding
+                paste_y = shadow_y + offset_y - padding
                 image.paste(shadow_img, (int(paste_x), int(paste_y)), shadow_img)
             else:
                 draw.text((shadow_x, shadow_y), text, fill=shadow_color, font=font)
@@ -82,39 +90,46 @@ class TextRenderer:
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
             
+            # Calculate offset from position to bbox top-left
+            # textbbox returns absolute coordinates, so we need the offset
+            offset_x = bbox[0] - x
+            offset_y = bbox[1] - y
+            
             if text_width > 0 and text_height > 0:
-                # Create text mask
-                text_img = Image.new('RGBA', (text_width + 4, text_height + 4), (0, 0, 0, 0))
+                # Create text mask - draw text at origin offset to match bbox
+                padding = 4
+                text_img = Image.new('RGBA', (text_width + padding, text_height + padding), (0, 0, 0, 0))
                 text_draw = ImageDraw.Draw(text_img)
-                text_draw.text((2, 2), text, fill=(255, 255, 255, 255), font=font)
+                # Draw text at padding/2 offset, accounting for bbox offset
+                text_draw.text((padding // 2 - offset_x, padding // 2 - offset_y), text, fill=(255, 255, 255, 255), font=font, anchor=None)
                 
                 # Create gradient
-                gradient_img = Image.new('RGBA', (text_width + 4, text_height + 4), (0, 0, 0, 0))
+                gradient_img = Image.new('RGBA', (text_width + padding, text_height + padding), (0, 0, 0, 0))
                 c1 = self.display_config.gradient_color1
                 c2 = self.display_config.gradient_color2
                 
-                for i in range(text_height + 4):
+                for i in range(text_height + padding):
                     if self.display_config.gradient_direction == "vertical":
-                        ratio = i / (text_height + 3)
+                        ratio = i / max(1, text_height + padding - 1)
                     elif self.display_config.gradient_direction == "horizontal":
                         ratio = 0.5  # Will be overridden per pixel
                     else:  # diagonal
-                        ratio = i / (text_height + 3)
+                        ratio = i / max(1, text_height + padding - 1)
                     
                     r = int(c1[0] + (c2[0] - c1[0]) * ratio)
                     g = int(c1[1] + (c2[1] - c1[1]) * ratio)
                     b = int(c1[2] + (c2[2] - c1[2]) * ratio)
                     a = int(c1[3] + (c2[3] - c1[3]) * ratio)
                     
-                    for j in range(text_width + 4):
+                    for j in range(text_width + padding):
                         if self.display_config.gradient_direction == "horizontal":
-                            ratio = j / (text_width + 3)
+                            ratio = j / max(1, text_width + padding - 1)
                             r = int(c1[0] + (c2[0] - c1[0]) * ratio)
                             g = int(c1[1] + (c2[1] - c1[1]) * ratio)
                             b = int(c1[2] + (c2[2] - c1[2]) * ratio)
                             a = int(c1[3] + (c2[3] - c1[3]) * ratio)
                         elif self.display_config.gradient_direction == "diagonal":
-                            ratio = (i + j) / (text_height + text_width + 6)
+                            ratio = (i + j) / max(1, text_height + text_width + padding * 2 - 2)
                             r = int(c1[0] + (c2[0] - c1[0]) * ratio)
                             g = int(c1[1] + (c2[1] - c1[1]) * ratio)
                             b = int(c1[2] + (c2[2] - c1[2]) * ratio)
@@ -124,9 +139,9 @@ class TextRenderer:
                 # Apply text as mask to gradient
                 gradient_img.putalpha(text_img.split()[3])
                 
-                # Paste gradient text onto image
-                paste_x = x + (bbox[0] - x) - 2
-                paste_y = y + (bbox[1] - y) - 2
+                # Paste gradient text onto main image at bbox position
+                paste_x = bbox[0] - padding // 2
+                paste_y = bbox[1] - padding // 2
                 image.paste(gradient_img, (int(paste_x), int(paste_y)), gradient_img)
             else:
                 # Fallback to regular text

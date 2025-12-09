@@ -158,6 +158,28 @@ cleanup_path() {
     fi
 }
 
+remove_user_configs() {
+    echo -n "Remove user configuration files ($CONFIG_DIR)? [y/N]: "
+    read -r REPLY
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [ -d "$CONFIG_DIR" ]; then
+            rm -rf "$CONFIG_DIR"
+            log_info "User configuration removed: $CONFIG_DIR"
+        else
+            log_info "No user configuration found at $CONFIG_DIR"
+        fi
+        
+        # Also remove log directory if it exists
+        LOG_DIR="$USER_HOME/.local/state/$APP_NAME"
+        if [ -d "$LOG_DIR" ]; then
+            rm -rf "$LOG_DIR"
+            log_info "Log directory removed: $LOG_DIR"
+        fi
+    else
+        log_info "User configuration preserved"
+    fi
+}
+
 remove_other_users() {
     echo -n "Remove installation for ALL users on this system? [y/N]: "
     read -r REPLY

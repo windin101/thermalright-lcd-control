@@ -8,7 +8,36 @@ A Linux application for controlling Thermalright LCD displays with an intuitive 
 
 # Overview
 
-This fork extends the original Thermalright LCD Control project with enhanced GUI features, text effects, and improved usability. The goal is to provide a polished, user-friendly experience for customizing your Thermalright LCD display on Linux. This will be expanded to adding support for aditional Thermalright products
+This fork extends the original Thermalright LCD Control project with enhanced GUI features, text effects, and improved usability. The goal is to provide a polished, user-friendly experience for customizing your Thermalright LCD display on Linux. This will be expanded to adding support for additional Thermalright products.
+
+### New Features in This Fork
+
+**Display Composition**
+- 🖼️ Background controls with multiple scaling modes (Stretch, Fit, Fill, Centered, Tiled)
+- 🎨 Background colour picker for solid colour backgrounds
+- 🔲 Background opacity control with smooth slider
+- 🎭 Draggable foreground image overlay with opacity and position controls
+
+**Text & Metrics Display**
+- 📅 Enhanced date widget with format options (Default, Short, Numeric) and weekday/year toggles
+- ⏰ Enhanced time widget with 12/24-hour format, seconds, and AM/PM options
+- 📊 CPU & GPU metrics (temperature, usage, frequency) with customizable labels, units, and positioning
+- ✏️ 4 customizable free text widgets with individual font size control
+
+**Text Effects**
+- 🌑 Shadow effect with colour, X/Y offset, and blur radius
+- ✨ Outline effect with colour and width control
+- 🌈 Gradient text with two-colour selection and direction (vertical, horizontal, diagonal)
+
+**Editing Tools**
+- 📐 Snap-to-grid with configurable grid size (5-50px) and visual overlay
+- 🔄 Display rotation (0°, 90°, 180°, 270°)
+- 🖱️ Drag-and-drop positioning with visual feedback on hover/drag
+
+**UI Polish**
+- 🎨 Modern stylesheet with consistent control sizing and spacing
+- 💾 Theme save/load functionality
+- 🔧 Unified control layout for text effects (Shadow, Outline, Gradient on one line)
 
 # Origional Project Overview
 

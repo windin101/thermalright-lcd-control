@@ -5,12 +5,82 @@
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal
-from PySide6.QtGui import QMouseEvent, QColor
-from PySide6.QtWidgets import (QLabel)
+from PySide6.QtGui import QMouseEvent, QColor, QPixmap, QPainter, QPen
+from PySide6.QtWidgets import QLabel, QWidget
 
 from thermalright_lcd_control.device_controller.display.utils import _get_default_font_name
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
+
+
+class GridOverlayWidget(QWidget):
+    """Transparent overlay that draws a grid pattern"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._grid_size = 10
+        self._visible = False
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # Click-through
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
+        self.hide()
+    
+    def set_grid_size(self, size: int):
+        """Set the grid size in pixels"""
+        self._grid_size = max(1, size)
+        if self._visible:
+            self.update()
+    
+    def set_visible(self, visible: bool):
+        """Show or hide the grid"""
+        self._visible = visible
+        if visible:
+            self.show()
+            self.raise_()
+            self.update()
+        else:
+            self.hide()
+    
+    def paintEvent(self, event):
+        """Draw the grid with intersection markers"""
+        if not self._visible:
+            return
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        
+        # Semi-transparent grid lines
+        line_pen = QPen(QColor(100, 100, 100, 60))
+        line_pen.setWidth(1)
+        
+        # Draw vertical lines
+        x = 0
+        while x <= self.width():
+            painter.setPen(line_pen)
+            painter.drawLine(x, 0, x, self.height())
+            x += self._grid_size
+        
+        # Draw horizontal lines
+        y = 0
+        while y <= self.height():
+            painter.setPen(line_pen)
+            painter.drawLine(0, y, self.width(), y)
+            y += self._grid_size
+        
+        # Draw small dots at intersections for better visibility
+        dot_pen = QPen(QColor(52, 152, 219, 120))  # Blue dots
+        dot_pen.setWidth(3)
+        painter.setPen(dot_pen)
+        
+        y = 0
+        while y <= self.height():
+            x = 0
+            while x <= self.width():
+                painter.drawPoint(x, y)
+                x += self._grid_size
+            y += self._grid_size
+        
+        painter.end()
 
 
 class TextStyleConfig:
@@ -21,6 +91,21 @@ class TextStyleConfig:
         self.font_size = 18
         self.color = QColor(0, 0, 0)
         self.bold = True
+        # Shadow settings
+        self.shadow_enabled = False
+        self.shadow_color = QColor(0, 0, 0, 128)
+        self.shadow_offset_x = 2
+        self.shadow_offset_y = 2
+        self.shadow_blur = 3
+        # Outline settings
+        self.outline_enabled = False
+        self.outline_color = QColor(0, 0, 0)
+        self.outline_width = 1
+        # Gradient settings
+        self.gradient_enabled = False
+        self.gradient_color1 = QColor(255, 255, 255)
+        self.gradient_color2 = QColor(100, 100, 255)
+        self.gradient_direction = "vertical"  # vertical, horizontal, diagonal
 
     def selected_stylesheet(self):
         """Convert to CSS stylesheet for selected widget"""
@@ -43,11 +128,49 @@ class TextStyleConfig:
 class DraggableWidget(QLabel):
     """Base class for draggable overlay widgets"""
     positionChanged = Signal(QPoint)
+    
+    # Class-level snap-to-grid settings (shared by all widgets)
+    _snap_to_grid_enabled = False
+    _grid_size = 10  # pixels
+
+    @classmethod
+    def set_snap_to_grid(cls, enabled: bool):
+        """Enable or disable snap-to-grid for all widgets"""
+        cls._snap_to_grid_enabled = enabled
+
+    @classmethod
+    def set_grid_size(cls, size: int):
+        """Set the grid size in pixels"""
+        cls._grid_size = max(1, size)
+
+    @classmethod
+    def get_snap_to_grid(cls) -> bool:
+        """Check if snap-to-grid is enabled"""
+        return cls._snap_to_grid_enabled
+
+    @classmethod
+    def get_grid_size(cls) -> int:
+        """Get the current grid size"""
+        return cls._grid_size
+
+    def _snap_position(self, pos: QPoint) -> QPoint:
+        """Snap a position to the grid if enabled"""
+        if not self._snap_to_grid_enabled:
+            return pos
+        grid = self._grid_size
+        snapped_x = round(pos.x() / grid) * grid
+        snapped_y = round(pos.y() / grid) * grid
+        return QPoint(snapped_x, snapped_y)
 
     def __init__(self, parent=None, text="", widget_name="widget"):
         super().__init__(parent)
         self.widget_name = widget_name
-        self.setAlignment(Qt.AlignCenter)
+        # Use top-left alignment to match PIL text rendering (which draws from top-left)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        # Remove all internal margins/indents to match PIL positioning exactly
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setMargin(0)
+        self.setIndent(0)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.dragging = False
         self.drag_start_position = QPoint()
@@ -55,21 +178,95 @@ class DraggableWidget(QLabel):
         self.adjustSize()
         self.move(10, 10)
         self.text_style = TextStyleConfig()
+        self._individual_font_size = None  # None means use global style
         self.enabled = False
         self.display_text = ""
+        self._show_position_hint = False
+        self._is_hovered = False
         self.update_display()
 
     def update_display(self):
         """Update display"""
         if self.enabled:
             self.setText(self.display_text)
-            self.setStyleSheet(f"QLabel {{ {self.text_style.selected_stylesheet()} }}")
-            self.setDisabled(False)
+            self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            self.show()
         else:
             self.setText("")
-            self.setStyleSheet(f"QLabel {{ {self.text_style.hidden_stylesheet()} }}")
-            self.setDisabled(True)
+            self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            self.hide()
         self.adjustSize()
+
+    def _get_stylesheet(self) -> str:
+        """Get stylesheet with individual or global font size and drag state styling"""
+        font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
+        
+        # Use outline instead of border - outline doesn't affect layout/positioning
+        if self.dragging:
+            outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
+        elif self._is_hovered:
+            outline_style = "outline: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.15);"
+        else:
+            outline_style = "outline: none; background-color: transparent;"
+        
+        # Build text color - use gradient if enabled, otherwise solid color
+        if self.text_style.gradient_enabled:
+            # Qt QLabel doesn't support CSS gradients for text directly
+            # We'll use the primary gradient color for preview, actual gradient in renderer
+            text_color = self.text_style.gradient_color1.name()
+        else:
+            text_color = self.text_style.color.name()
+        
+        # Build shadow/outline effects
+        # Note: Qt supports a simplified text-shadow, we'll simulate outline with multiple shadows
+        effects = []
+        
+        if self.text_style.shadow_enabled:
+            shadow_color = self.text_style.shadow_color.name()
+            sx = self.text_style.shadow_offset_x
+            sy = self.text_style.shadow_offset_y
+            effects.append(f"{sx}px {sy}px {shadow_color}")
+        
+        if self.text_style.outline_enabled:
+            outline_color = self.text_style.outline_color.name()
+            w = self.text_style.outline_width
+            # Create outline effect using multiple shadows in all directions
+            effects.extend([
+                f"{-w}px {-w}px 0 {outline_color}",
+                f"{w}px {-w}px 0 {outline_color}",
+                f"{-w}px {w}px 0 {outline_color}",
+                f"{w}px {w}px 0 {outline_color}",
+                f"0px {-w}px 0 {outline_color}",
+                f"0px {w}px 0 {outline_color}",
+                f"{-w}px 0px 0 {outline_color}",
+                f"{w}px 0px 0 {outline_color}"
+            ])
+        
+        # Note: Qt's QLabel doesn't fully support text-shadow CSS property
+        # The effects will show properly in the LCD renderer using PIL
+        
+        return f"""
+            {outline_style}
+            color: {text_color};
+            padding: 0px;
+            margin: 0px;
+            font-family: {self.text_style.font_family};
+            font-size: {font_size}px;
+            font-weight: {'bold' if self.text_style.bold else 'normal'};
+        """
+
+    def set_font_size(self, size: int):
+        """Set individual font size for this widget"""
+        self._individual_font_size = size
+        self.update_display()
+
+    def get_font_size(self) -> int:
+        """Get current font size (individual or global)"""
+        return self._individual_font_size if self._individual_font_size else self.text_style.font_size
+
+    def show_position_hint(self, show: bool):
+        """Show/hide position hint when dragging"""
+        self._show_position_hint = show
 
     def apply_style(self, style_config: TextStyleConfig):
         self.text_style = style_config
@@ -81,6 +278,7 @@ class DraggableWidget(QLabel):
             self.dragging = True
             self.drag_start_position = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            self.update_display()  # Update style to show drag border
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle dragging movement"""
@@ -93,26 +291,237 @@ class DraggableWidget(QLabel):
                 new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
             self.move(new_pos)
             self.positionChanged.emit(new_pos)
+            # Update tooltip with current position
+            self.setToolTip(f"Position: ({new_pos.x()}, {new_pos.y()})")
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        """Finish dragging"""
+        """Finish dragging and snap to grid if enabled"""
         if event.button() == Qt.LeftButton:
             self.dragging = False
             self.setCursor(Qt.ArrowCursor)
+            
+            # Snap to grid if enabled
+            if self._snap_to_grid_enabled:
+                snapped_pos = self._snap_position(self.pos())
+                # Clamp to parent bounds after snapping
+                if self.parent():
+                    parent_rect = self.parent().rect()
+                    widget_rect = self.rect()
+                    snapped_pos.setX(max(0, min(snapped_pos.x(), parent_rect.width() - widget_rect.width())))
+                    snapped_pos.setY(max(0, min(snapped_pos.y(), parent_rect.height() - widget_rect.height())))
+                self.move(snapped_pos)
+                self.positionChanged.emit(snapped_pos)
+                self.setToolTip(f"Position: ({snapped_pos.x()}, {snapped_pos.y()})")
+            
+            self.update_display()  # Update style to remove drag border
 
     def enterEvent(self, event):
-        """Change cursor on hover"""
+        """Change cursor and show hover border"""
+        self._is_hovered = True
         self.setCursor(Qt.OpenHandCursor)
+        self.update_display()
 
     def leaveEvent(self, event):
-        """Reset cursor"""
+        """Reset cursor and hide hover border"""
+        self._is_hovered = False
         if not self.dragging:
             self.setCursor(Qt.ArrowCursor)
+        self.update_display()
 
     def set_enabled(self, enabled):
         """Enable/disable display"""
         self.enabled = enabled
         self.update_display()
+
+    def set_position(self, x: int, y: int):
+        """Set widget position programmatically"""
+        if self.parent():
+            parent_rect = self.parent().rect()
+            widget_rect = self.rect()
+            x = max(0, min(x, parent_rect.width() - widget_rect.width()))
+            y = max(0, min(y, parent_rect.height() - widget_rect.height()))
+        self.move(x, y)
+        self.positionChanged.emit(QPoint(x, y))
+
+    def get_position(self) -> tuple:
+        """Get current widget position"""
+        return (self.pos().x(), self.pos().y())
+
+
+class DraggableForegroundWidget(QLabel):
+    """Draggable transparent overlay for positioning the foreground image.
+    
+    This widget acts as an invisible drag handle over the foreground image area.
+    It shows a subtle border on hover to indicate it can be dragged.
+    The actual image rendering is handled by the preview manager.
+    """
+    positionChanged = Signal(int, int)
+
+    def __init__(self, parent=None, width=320, height=240):
+        super().__init__(parent)
+        self._width = width
+        self._height = height
+        self._preview_scale = 1.0  # Scale factor for preview vs device coordinates
+        self.setFixedSize(width, height)
+        self._normal_style = "background-color: transparent; border: none;"
+        self._hover_style = "background-color: rgba(52, 152, 219, 0.15); border: 2px solid #3498db;"
+        self._dragging_style = "background-color: rgba(231, 76, 60, 0.2); border: 3px solid #e74c3c;"
+        self.setStyleSheet(self._normal_style)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.dragging = False
+        self.drag_start_position = QPoint()
+        self._image_path = None
+        self._last_emit_time = 0  # For throttling position updates
+        self._image_size = (width, height)  # Actual foreground image size (device coordinates)
+        self._active = False  # Whether a foreground is set
+        self.move(0, 0)
+        self.hide()  # Hidden by default until foreground is set
+
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor"""
+        self._preview_scale = scale
+        # Update size if we have an image
+        if self._image_path and self._active:
+            scaled_w = int(self._image_size[0] * scale)
+            scaled_h = int(self._image_size[1] * scale)
+            if self.parent():
+                max_w = min(scaled_w, self.parent().width())
+                max_h = min(scaled_h, self.parent().height())
+                self.setFixedSize(max_w, max_h)
+            else:
+                self.setFixedSize(scaled_w, scaled_h)
+
+    def set_foreground_active(self, active: bool, image_path: str = None, image_size: tuple = None):
+        """Activate/deactivate the foreground drag handle"""
+        self._active = active
+        self._image_path = image_path
+        
+        if active:
+            # Update size to match foreground image if provided (scaled for preview)
+            if image_size:
+                self._image_size = image_size
+                scaled_w = int(image_size[0] * self._preview_scale)
+                scaled_h = int(image_size[1] * self._preview_scale)
+                if self.parent():
+                    max_w = min(scaled_w, self.parent().width())
+                    max_h = min(scaled_h, self.parent().height())
+                    self.setFixedSize(max_w, max_h)
+                else:
+                    self.setFixedSize(scaled_w, scaled_h)
+            self.show()
+            # Note: z-order is managed by main_window._raise_overlay_widgets()
+        else:
+            self.hide()
+
+    def set_foreground_image(self, image_path: str, opacity: float = 1.0):
+        """Set the foreground - just activates the drag handle"""
+        if image_path:
+            # Get actual image size (device coordinates)
+            pixmap = QPixmap(image_path)
+            if not pixmap.isNull():
+                self._image_size = (pixmap.width(), pixmap.height())
+                # Scale the drag handle to match the preview scale
+                scaled_w = int(pixmap.width() * self._preview_scale)
+                scaled_h = int(pixmap.height() * self._preview_scale)
+                if self.parent():
+                    max_w = min(scaled_w, self.parent().width())
+                    max_h = min(scaled_h, self.parent().height())
+                    self.setFixedSize(max_w, max_h)
+                else:
+                    self.setFixedSize(scaled_w, scaled_h)
+            self.set_foreground_active(True, image_path, self._image_size)
+        else:
+            self.set_foreground_active(False)
+
+    def set_opacity(self, opacity: float):
+        """Set foreground opacity - no-op for drag handle"""
+        pass  # Opacity is handled by preview manager
+
+    def clear_foreground(self):
+        """Clear/hide the foreground drag handle"""
+        self._image_path = None
+        self._active = False
+        self.hide()
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """Start dragging"""
+        if event.button() == Qt.LeftButton and self._active:
+            self.dragging = True
+            self.drag_start_position = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            self.setStyleSheet(self._dragging_style)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """Handle dragging movement"""
+        if self.dragging and event.buttons() == Qt.LeftButton:
+            new_pos = self.pos() + event.pos() - self.drag_start_position
+            # Allow negative positions for foreground (can be partially off-screen)
+            if self.parent():
+                parent_rect = self.parent().rect()
+                # Limit to keep at least some of the image visible
+                min_x = -self.width() + 20
+                max_x = parent_rect.width() - 20
+                min_y = -self.height() + 20
+                max_y = parent_rect.height() - 20
+                new_pos.setX(max(min_x, min(new_pos.x(), max_x)))
+                new_pos.setY(max(min_y, min(new_pos.y(), max_y)))
+            self.move(new_pos)
+            self.setToolTip(f"Foreground: ({new_pos.x()}, {new_pos.y()})")
+            
+            # Throttle position updates to max ~20fps to prevent GUI blocking
+            import time
+            current_time = time.time()
+            if current_time - self._last_emit_time >= 0.05:  # 50ms throttle
+                self.positionChanged.emit(new_pos.x(), new_pos.y())
+                self._last_emit_time = current_time
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """Finish dragging and snap to grid if enabled"""
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
+            self.setCursor(Qt.ArrowCursor)
+            self.setStyleSheet(self._hover_style if self.underMouse() else self._normal_style)
+            
+            # Snap to grid if enabled (use DraggableWidget's class settings)
+            if DraggableWidget.get_snap_to_grid():
+                grid = DraggableWidget.get_grid_size()
+                snapped_x = round(self.pos().x() / grid) * grid
+                snapped_y = round(self.pos().y() / grid) * grid
+                # Clamp to bounds after snapping
+                if self.parent():
+                    parent_rect = self.parent().rect()
+                    min_x = -self.width() + 20
+                    max_x = parent_rect.width() - 20
+                    min_y = -self.height() + 20
+                    max_y = parent_rect.height() - 20
+                    snapped_x = max(min_x, min(snapped_x, max_x))
+                    snapped_y = max(min_y, min(snapped_y, max_y))
+                self.move(snapped_x, snapped_y)
+                self.setToolTip(f"Foreground: ({snapped_x}, {snapped_y})")
+                self.positionChanged.emit(snapped_x, snapped_y)
+            else:
+                # Emit final position on release
+                self.positionChanged.emit(self.pos().x(), self.pos().y())
+
+    def enterEvent(self, event):
+        """Change cursor and show border on hover"""
+        if self._active:
+            self.setCursor(Qt.OpenHandCursor)
+            self.setStyleSheet(self._hover_style)
+
+    def leaveEvent(self, event):
+        """Reset cursor and hide border"""
+        if not self.dragging:
+            self.setCursor(Qt.ArrowCursor)
+            self.setStyleSheet(self._normal_style)
+
+    def set_position(self, x: int, y: int):
+        """Set position programmatically"""
+        self.move(x, y)
+
+    def get_position(self) -> tuple:
+        """Get current position"""
+        return (self.pos().x(), self.pos().y())
 
 
 class TimerWidget(DraggableWidget):
@@ -126,23 +535,188 @@ class TimerWidget(DraggableWidget):
         self.update_timer.timeout.connect(self.update_display)
         self.update_timer.start(1000)
 
+    def update_display(self):
+        """Update display with current time using the format string"""
+        if self.enabled:
+            self.display_text = datetime.now().strftime(self.time_format)
+            self.setText(self.display_text)
+            self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            self.show()
+        else:
+            self.setText("")
+            self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            self.hide()
+        self.adjustSize()
+
 
 class DateWidget(TimerWidget):
-    """Date display widget"""
+    """Date display widget with format options"""
 
     def __init__(self, parent=None):
-        super().__init__(parent, "date", "%d/%m")
+        super().__init__(parent, "date", "%A %-d %B")
+        self.show_weekday = True
+        self.show_year = False
+        self.date_format = "default"  # default, short, numeric
+        self._update_format()
+
+    def _update_format(self):
+        """Update the time format string based on options"""
+        if self.date_format == "numeric":
+            # e.g., 09/12/2025 or 09/12
+            if self.show_year:
+                self.time_format = "%d/%m/%Y"
+            else:
+                self.time_format = "%d/%m"
+        elif self.date_format == "short":
+            # e.g., Dec 9, 2025 or Tue Dec 9
+            parts = []
+            if self.show_weekday:
+                parts.append("%a")
+            parts.append("%b %-d")
+            if self.show_year:
+                parts.append("%Y")
+            self.time_format = " ".join(parts)
+        else:  # default
+            # e.g., Tuesday 9 December 2025
+            parts = []
+            if self.show_weekday:
+                parts.append("%A")
+            parts.append("%-d %B")
+            if self.show_year:
+                parts.append("%Y")
+            self.time_format = " ".join(parts)
+        self.update_display()
+
+    def set_show_weekday(self, show: bool):
+        """Set whether to show weekday"""
+        self.show_weekday = show
+        self._update_format()
+
+    def set_show_year(self, show: bool):
+        """Set whether to show year"""
+        self.show_year = show
+        self._update_format()
+
+    def set_date_format(self, format_type: str):
+        """Set date format type (default, short, numeric)"""
+        self.date_format = format_type
+        self._update_format()
+
+    def get_show_weekday(self) -> bool:
+        return self.show_weekday
+
+    def get_show_year(self) -> bool:
+        return self.show_year
+
+    def get_date_format(self) -> str:
+        return self.date_format
 
 
 class TimeWidget(TimerWidget):
-    """Time display widget"""
+    """Time display widget with format options"""
 
     def __init__(self, parent=None):
         super().__init__(parent, "time", "%H:%M")
+        self.use_24_hour = True
+        self.show_seconds = False
+        self.show_am_pm = False
+        self._update_format()
+
+    def _update_format(self):
+        """Update the time format string based on options"""
+        if self.use_24_hour:
+            if self.show_seconds:
+                self.time_format = "%H:%M:%S"
+            else:
+                self.time_format = "%H:%M"
+        else:
+            if self.show_seconds:
+                fmt = "%I:%M:%S"
+            else:
+                fmt = "%I:%M"
+            if self.show_am_pm:
+                fmt += " %p"
+            self.time_format = fmt
+        self.update_display()
+
+    def set_use_24_hour(self, use: bool):
+        """Set whether to use 24-hour format"""
+        self.use_24_hour = use
+        self._update_format()
+
+    def set_show_seconds(self, show: bool):
+        """Set whether to show seconds"""
+        self.show_seconds = show
+        self._update_format()
+
+    def set_show_am_pm(self, show: bool):
+        """Set whether to show AM/PM indicator"""
+        self.show_am_pm = show
+        self._update_format()
+
+    def get_use_24_hour(self) -> bool:
+        return self.use_24_hour
+
+    def get_show_seconds(self) -> bool:
+        return self.show_seconds
+
+    def get_show_am_pm(self) -> bool:
+        return self.show_am_pm
+
+
+class FreeTextWidget(DraggableWidget):
+    """Free text display widget - allows custom text entry"""
+
+    def __init__(self, parent=None, widget_name="text1"):
+        super().__init__(parent, "", widget_name)
+        self.name = widget_name
+        self.custom_text = ""
+        self._set_initial_position()
+        self.update_display()
+
+    def _set_initial_position(self):
+        """Set initial position based on widget name"""
+        positions = {
+            "text1": (10, 200),
+            "text2": (10, 220),
+            "text3": (10, 240),
+            "text4": (10, 260)
+        }
+        if self.name in positions:
+            self.move(*positions[self.name])
+
+    def set_text(self, text: str):
+        """Set the custom text to display"""
+        self.custom_text = text
+        self.display_text = text
+        self.update_display()
+
+    def get_text(self) -> str:
+        """Get the current custom text"""
+        return self.custom_text
+
+    def update_display(self):
+        """Update display with custom text"""
+        if self.enabled and self.custom_text:
+            self.display_text = self.custom_text
+            self.setText(self.display_text)
+            self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            self.show()
+        else:
+            self.setText("")
+            self.hide()
+        self.adjustSize()
 
 
 class MetricWidget(DraggableWidget):
     """Generic metric display widget"""
+    
+    # Label position constants (matching service-side LabelPosition enum)
+    LABEL_LEFT = "left"
+    LABEL_RIGHT = "right"
+    LABEL_ABOVE = "above"
+    LABEL_BELOW = "below"
+    LABEL_NONE = "none"
 
     def __init__(self, metric: type[CpuMetrics | GpuMetrics], parent=None, metric_name="", display_text=""):
         super().__init__(parent, display_text, metric_name)
@@ -151,10 +725,11 @@ class MetricWidget(DraggableWidget):
         self.enabled = False
         self.custom_label = ""
         self.custom_unit = ""
-        self.format = "{label}{value}{unit}"
-        self.display_text = self.format.format(
-            label=self.format_label(), value=self.get_value(), unit=self.get_unit()
-        )
+        self.label_position = self.LABEL_LEFT  # Default: label on left
+        self._label_font_size = None  # None means use same as value font size
+        self._freq_format = "mhz"  # Default frequency format (mhz or ghz)
+        self._update_format()
+        self.display_text = self._format_display_text()
         self.setText(self.display_text)
         self._set_initial_position()
         self.update_display()
@@ -162,14 +737,39 @@ class MetricWidget(DraggableWidget):
         self.update_timer.timeout.connect(self.update_display)
         self.update_timer.start(1000)
 
-    def _set_initial_position(self):
-        """Set initial position based on widget type"""
-        positions = {
-            "cpu_temperature": (10, 40), "gpu_temperature": (10, 70), "cpu_usage": (10, 100),
-            "gpu_usage": (10, 130), "cpu_frequency": (10, 160), "gpu_frequency": (10, 190)
-        }
-        if self.metric_name in positions:
-            self.move(*positions[self.metric_name])
+    def _update_format(self):
+        """Update format string based on label position"""
+        if self.label_position == self.LABEL_NONE or not self.custom_label:
+            self.format = "{value}{unit}"
+        elif self.label_position == self.LABEL_LEFT:
+            self.format = "{label}: {value}{unit}"
+        elif self.label_position == self.LABEL_RIGHT:
+            self.format = "{value}{unit} :{label}"
+        elif self.label_position == self.LABEL_ABOVE:
+            self.format = "{label}\n{value}{unit}"
+        elif self.label_position == self.LABEL_BELOW:
+            self.format = "{value}{unit}\n{label}"
+        else:
+            self.format = "{label}: {value}{unit}"
+
+    def _format_display_text(self) -> str:
+        """Format the display text based on current settings"""
+        label = self.custom_label if self.custom_label else ""
+        value = self.get_value()
+        unit = self.get_unit()
+        
+        if self.label_position == self.LABEL_NONE or not label:
+            return f"{value}{unit}"
+        elif self.label_position == self.LABEL_LEFT:
+            return f"{label}: {value}{unit}"
+        elif self.label_position == self.LABEL_RIGHT:
+            return f"{value}{unit} :{label}"
+        elif self.label_position == self.LABEL_ABOVE:
+            return f"{label}\n{value}{unit}"
+        elif self.label_position == self.LABEL_BELOW:
+            return f"{value}{unit}\n{label}"
+        else:
+            return f"{label}: {value}{unit}"
 
     def _set_initial_position(self):
         """Set initial position based on widget type"""
@@ -179,42 +779,143 @@ class MetricWidget(DraggableWidget):
         }
         if self.metric_name in positions:
             self.move(*positions[self.metric_name])
+
+    def set_label_position(self, position: str):
+        """Set the label position relative to value"""
+        if position in [self.LABEL_LEFT, self.LABEL_RIGHT, self.LABEL_ABOVE, self.LABEL_BELOW, self.LABEL_NONE]:
+            self.label_position = position
+            self._update_format()
+            self.update_display()
+
+    def get_label_position(self) -> str:
+        """Get current label position"""
+        return self.label_position
+
+    def set_label_font_size(self, size: int):
+        """Set individual font size for labels"""
+        self._label_font_size = size
+        self.update_display()
+
+    def get_label_font_size(self) -> int:
+        """Get current label font size (individual or same as value)"""
+        return self._label_font_size if self._label_font_size else self.get_font_size()
 
     def set_custom_label(self, label):
-        """Définir un label personnalisé"""
+        """Set custom label"""
         self.custom_label = label
-        self.display_text = self.format.format(
-            label=self.format_label(), value=self.get_value(), unit=self.get_unit()
-        )
-        self.setText(self.display_text)
+        self._update_format()
         self.update_display()
 
     def set_custom_unit(self, unit):
-        """Définir une unité personnalisée"""
+        """Set custom unit"""
         self.custom_unit = unit
-        self.display_text = self.format.format(
-            label=self.format_label(), value=self.get_value(), unit=self.get_unit()
-        )
-        self.setText(self.display_text)
         self.update_display()
+
+    def _get_rich_text_stylesheet(self) -> str:
+        """Get base stylesheet for rich text (font size handled in HTML)"""
+        # Use outline instead of border - outline doesn't affect layout/positioning
+        if self.dragging:
+            outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
+        elif self._is_hovered:
+            outline_style = "outline: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.15);"
+        else:
+            outline_style = "outline: none; background-color: transparent;"
+        
+        return f"""
+            {outline_style}
+            padding: 0px;
+            margin: 0px;
+        """
+
+    def _format_rich_text(self) -> str:
+        """Format display text with separate font sizes for label and value using HTML"""
+        label = self.custom_label if self.custom_label else ""
+        value = self.get_value()
+        unit = self.get_unit()
+        
+        value_font_size = self.get_font_size()
+        label_font_size = self.get_label_font_size()
+        color = self.text_style.color.name()
+        font_family = self.text_style.font_family
+        font_weight = 'bold' if self.text_style.bold else 'normal'
+        
+        # Build styled spans
+        label_style = f"font-family: {font_family}; font-size: {label_font_size}px; font-weight: {font_weight}; color: {color};"
+        value_style = f"font-family: {font_family}; font-size: {value_font_size}px; font-weight: {font_weight}; color: {color};"
+        
+        label_span = f'<span style="{label_style}">{label}</span>'
+        value_span = f'<span style="{value_style}">{value}{unit}</span>'
+        
+        if self.label_position == self.LABEL_NONE or not label:
+            return value_span
+        elif self.label_position == self.LABEL_LEFT:
+            return f'{label_span}<span style="{label_style}">: </span>{value_span}'
+        elif self.label_position == self.LABEL_RIGHT:
+            return f'{value_span}<span style="{label_style}"> :</span>{label_span}'
+        elif self.label_position == self.LABEL_ABOVE:
+            # Center-align both lines using div with text-align center
+            return f'<div style="text-align: center;">{label_span}<br>{value_span}</div>'
+        elif self.label_position == self.LABEL_BELOW:
+            # Center-align both lines using div with text-align center
+            return f'<div style="text-align: center;">{value_span}<br>{label_span}</div>'
+        else:
+            return f'{label_span}<span style="{label_style}">: </span>{value_span}'
+
+    def update_display(self):
+        """Override to update with rich text formatting"""
+        if self.enabled:
+            rich_text = self._format_rich_text()
+            self.setText(rich_text)
+            self.setStyleSheet(f"QLabel {{ {self._get_rich_text_stylesheet()} }}")
+            self.show()
+        else:
+            self.setText("")
+            self.setStyleSheet(f"QLabel {{ {self._get_rich_text_stylesheet()} }}")
+            self.hide()
+        self.adjustSize()
 
     def format_label(self):
         return f"{self.custom_label}: " if self.custom_label else ""
 
     def get_label(self):
-        """Obtenir le label (personnalisé ou par défaut)"""
+        """Get label (custom or default)"""
         return self.custom_label if self.custom_label else ""
 
     def get_unit(self):
-        """Obtenir l'unité (personnalisée ou par défaut)"""
-        return self.custom_unit if self.custom_unit else ""
+        """Get unit (custom or default)"""
+        return self.custom_unit if self.custom_unit else self._get_default_unit()
 
     def get_value(self):
         value = self.metric_instance.get_metric_value(self.metric_name)
-        return value if value is not None else "N/A"
+        if value is None:
+            return "N/A"
+        
+        # Convert frequency if this is a frequency metric and format is GHz
+        if 'frequency' in self.metric_name and self._freq_format == "ghz":
+            try:
+                # Value is in MHz, convert to GHz
+                mhz_value = float(value)
+                ghz_value = mhz_value / 1000.0
+                return f"{ghz_value:.2f}"
+            except (ValueError, TypeError):
+                return value
+        
+        return value
+
+    def set_freq_format(self, format_type: str):
+        """Set frequency format (mhz or ghz)"""
+        if format_type in ["mhz", "ghz"]:
+            self._freq_format = format_type
+            # Clear custom unit so it uses the default based on format
+            self.custom_unit = ""
+            self.update_display()
+
+    def get_freq_format(self) -> str:
+        """Get current frequency format"""
+        return self._freq_format
 
     def _get_default_label(self):
-        """Obtenir le label par défaut basé sur le metric_name"""
+        """Get default label based on metric_name"""
         defaults = {
             "cpu_temperature": "CPU",
             "gpu_temperature": "GPU",
@@ -226,13 +927,15 @@ class MetricWidget(DraggableWidget):
         return defaults.get(self.metric_name, "")
 
     def _get_default_unit(self):
-        """Obtenir l'unité par défaut basée sur le metric_name"""
+        """Get default unit based on metric_name and frequency format"""
+        # For frequency metrics, return based on current format
+        if 'frequency' in self.metric_name:
+            return "GHz" if self._freq_format == "ghz" else "MHz"
+        
         defaults = {
             "cpu_temperature": "°",
             "gpu_temperature": "°",
             "cpu_usage": "%",
-            "gpu_usage": "%",
-            "cpu_frequency": "MHZ",
-            "gpu_frequency": "MHZ"
+            "gpu_usage": "%"
         }
         return defaults.get(self.metric_name, "")

@@ -6,6 +6,7 @@ Tab widget for displaying media files with thumbnails
 """
 
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -53,18 +54,24 @@ class MediaTab(QWidget):
         """Setup the user interface"""
         layout = QVBoxLayout(self)
 
-        # Only show add media button for backgrounds tab
-        if self.tab_name.lower() == "backgrounds":
-            # Top section with single add media button
+        # Show add media button for backgrounds and foregrounds tabs
+        if self.tab_name.lower() in ["backgrounds", "foregrounds"]:
+            # Top section with buttons
             top_layout = QHBoxLayout()
 
-            # Single button for adding media (single or multiple)
-            self.add_media_btn = QPushButton(f"Add Media")
+            # Button for adding media (single or multiple)
+            self.add_media_btn = QPushButton("Add Media")
             self.add_media_btn.clicked.connect(self.add_media_files)
             self.add_media_btn.setMaximumWidth(150)
 
+            # Button to open folder in file manager
+            self.open_folder_btn = QPushButton("Open Folder")
+            self.open_folder_btn.clicked.connect(self.open_folder)
+            self.open_folder_btn.setMaximumWidth(150)
+
             top_layout.addWidget(self.add_media_btn)
-            top_layout.addStretch()  # Push button to the left
+            top_layout.addWidget(self.open_folder_btn)
+            top_layout.addStretch()  # Push buttons to the left
 
             layout.addLayout(top_layout)
 
@@ -87,8 +94,8 @@ class MediaTab(QWidget):
 
     def add_media_files(self):
         """Open file dialog to add single or multiple media files"""
-        # Only allow adding media for backgrounds tab
-        if self.tab_name.lower() != "backgrounds":
+        # Only allow adding media for backgrounds and foregrounds tabs
+        if self.tab_name.lower() not in ["backgrounds", "foregrounds"]:
             return
 
         try:
@@ -230,7 +237,7 @@ class MediaTab(QWidget):
 
             thumbnail_btn = QPushButton()
             thumbnail_btn.setFixedSize(100, 100)
-            thumbnail_btn.setStyleSheet("border: 2px solid gray; border-radius: 5px;")
+            thumbnail_btn.setStyleSheet("border: 2px solid #bdc3c7; border-radius: 8px; background-color: #ffffff;")
 
             pixmap = QPixmap(str(first_image))
             if not pixmap.isNull():
@@ -415,7 +422,7 @@ class MediaTab(QWidget):
 
                     error_label = QLabel(f"Aucun média trouvé dans:\n{media_dir}\n\nFormats supportés:\n{format_info}")
                     error_label.setAlignment(Qt.AlignCenter)
-                    error_label.setStyleSheet("color: orange; font-size: 12px;")
+                    error_label.setStyleSheet("color: #e67e22; font-size: 12px;")
                     self.thumbnails_layout.addWidget(error_label, 0, 0)
                     return
 
@@ -446,12 +453,50 @@ class MediaTab(QWidget):
                             # Add a subtle visual indicator for user-added files
                             thumbnail.setStyleSheet("""
                                 QFrame {
-                                    border: 2px solid #4CAF50;
-                                    border-radius: 4px;
+                                    border: 2px solid #27ae60;
+                                    border-radius: 8px;
                                 }
                             """)
 
-                        self.thumbnails_layout.addWidget(thumbnail, row, col)
+                        # Create container with delete button overlay
+                        container = QWidget()
+                        container.setFixedSize(120, 100)
+                        
+                        # Position thumbnail inside container
+                        thumbnail.setParent(container)
+                        thumbnail.setGeometry(0, 0, 120, 100)
+                        
+                        # Add delete button as overlay in top-right corner
+                        delete_btn = QPushButton("X", container)
+                        delete_btn.setFixedSize(20, 20)
+                        delete_btn.setMinimumSize(20, 20)
+                        delete_btn.setMaximumSize(20, 20)
+                        delete_btn.move(96, 2)
+                        delete_btn.setToolTip(f"Delete {display_name}")
+                        delete_btn.setStyleSheet("""
+                            QPushButton {
+                                background-color: rgba(231, 76, 60, 0.9);
+                                color: white;
+                                border: none;
+                                border-radius: 10px;
+                                font-weight: bold;
+                                font-size: 11px;
+                                padding: 0px;
+                                margin: 0px;
+                                min-width: 20px;
+                                max-width: 20px;
+                                min-height: 20px;
+                                max-height: 20px;
+                            }
+                            QPushButton:hover {
+                                background-color: #c0392b;
+                            }
+                        """)
+                        delete_btn.clicked.connect(
+                            lambda checked, path=str(file_path), name=display_name: self.delete_media(path, name))
+                        delete_btn.raise_()
+
+                        self.thumbnails_layout.addWidget(container, row, col)
 
                     col += 1
                     if col >= max_cols:
@@ -467,19 +512,68 @@ class MediaTab(QWidget):
                 error_label = QLabel(f"Répertoire média introuvable:\n{media_dir}\n\n" +
                                      f"Veuillez vérifier le paramètre '{self.tab_name.lower()}_dir' dans votre fichier de configuration.")
                 error_label.setAlignment(Qt.AlignCenter)
-                error_label.setStyleSheet("color: red; font-size: 14px;")
+                error_label.setStyleSheet("color: #e74c3c; font-size: 14px;")
                 self.thumbnails_layout.addWidget(error_label, 0, 0)
 
         except Exception as e:
             error_label = QLabel(f"Erreur lors du chargement des médias:\n{str(e)}")
             error_label.setAlignment(Qt.AlignCenter)
-            error_label.setStyleSheet("color: red; font-size: 14px;")
+            error_label.setStyleSheet("color: #e74c3c; font-size: 14px;")
             self.thumbnails_layout.addWidget(error_label, 0, 0)
             self.logger.error(f"Exception in load_media_files for {self.tab_name}: {e}")
 
     def on_thumbnail_clicked(self, file_path):
         """Handle thumbnail click and emit signal"""
         self.thumbnail_clicked.emit(file_path)
+
+    def delete_media(self, file_path: str, display_name: str):
+        """Delete a media file after confirmation"""
+        reply = QMessageBox.question(
+            self,
+            "Delete Media",
+            f"Are you sure you want to delete '{display_name}'?\n\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                path = Path(file_path)
+                if path.exists():
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                    self.logger.info(f"Deleted media: {file_path}")
+                    # Refresh the media list
+                    self.load_media_files()
+                else:
+                    QMessageBox.warning(self, "Error", f"File not found: {file_path}")
+            except Exception as e:
+                self.logger.error(f"Error deleting media {file_path}: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to delete media:\n{str(e)}")
+
+    def open_folder(self):
+        """Open the media folder in the system file manager"""
+        try:
+            folder_path = Path(self.media_dir)
+            if folder_path.exists():
+                # Use xdg-open on Linux, open on macOS, explorer on Windows
+                import platform
+                system = platform.system()
+                if system == "Linux":
+                    subprocess.Popen(["xdg-open", str(folder_path)])
+                elif system == "Darwin":  # macOS
+                    subprocess.Popen(["open", str(folder_path)])
+                elif system == "Windows":
+                    subprocess.Popen(["explorer", str(folder_path)])
+                else:
+                    self.logger.warning(f"Unsupported platform: {system}")
+            else:
+                QMessageBox.warning(self, "Error", f"Folder not found:\n{folder_path}")
+        except Exception as e:
+            self.logger.error(f"Error opening folder: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open folder:\n{str(e)}")
 
     def cleanup_thumbnails(self):
         """Clean up all thumbnail resources"""

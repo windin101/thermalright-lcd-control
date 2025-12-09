@@ -51,6 +51,25 @@ class DisplayGenerator:
             self.logger.warning(f"Cannot load foreground image: {e}")
             return background
 
+    def _apply_background_alpha(self, background: Image.Image) -> Image.Image:
+        """Apply background alpha (opacity) by blending with background color"""
+        if self.config.background_alpha >= 1.0:
+            return background
+        
+        # Get background color from config, default to black
+        bg_color = getattr(self.config, 'background_color', (0, 0, 0))
+        
+        # Create solid color image
+        solid = Image.new('RGBA', background.size, (*bg_color, 255))
+        
+        # Convert background to RGBA if needed
+        if background.mode != 'RGBA':
+            background = background.convert('RGBA')
+        
+        # Blend: result = solid * (1 - alpha) + background * alpha
+        result = Image.blend(solid, background, self.config.background_alpha)
+        return result
+
     def generate_frame_with_metrics(self, metrics: dict, apply_rotation: bool = True) -> Image.Image:
         """
         Generate a complete frame with all elements and real-time metrics
@@ -62,6 +81,9 @@ class DisplayGenerator:
         # Get current background
         background = self.frame_manager.get_current_frame()
 
+        # Apply background alpha (opacity)
+        background = self._apply_background_alpha(background)
+
         # Add foreground image if configured
         result = self._add_foreground_image(background)
 
@@ -69,13 +91,13 @@ class DisplayGenerator:
         draw = ImageDraw.Draw(result)
 
         # Draw metrics
-        self.text_renderer.render_metrics(draw, metrics, self.config.metrics_configs)
+        self.text_renderer.render_metrics(draw, result, metrics, self.config.metrics_configs)
 
         # Draw date (dd/mm format)
-        self.text_renderer.render_date(draw, self.config.date_config)
+        self.text_renderer.render_date(draw, result, self.config.date_config)
 
         # Draw time (HH:MM format)
-        self.text_renderer.render_time(draw, self.config.time_config)
+        self.text_renderer.render_time(draw, result, self.config.time_config)
 
         convert = result.convert('RGB')
 

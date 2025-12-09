@@ -12,11 +12,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QScrollArea, QGridLayout, QPushButton)
+                               QScrollArea, QGridLayout, QPushButton, QMessageBox,
+                               QSpacerItem, QSizePolicy)
 
 from thermalright_lcd_control.gui.widgets.thumbnail_widget import ThumbnailWidget
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.display.config_loader import ConfigLoader
+from thermalright_lcd_control.device_controller.display.generator import DisplayGenerator
 
 
 class ThemesTab(QWidget):
@@ -64,12 +66,16 @@ class ThemesTab(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         self.thumbnails_widget = QWidget()
         self.thumbnails_layout = QGridLayout(self.thumbnails_widget)
         self.thumbnails_layout.setSpacing(10)
-        self.thumbnails_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.thumbnails_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Set column stretch to prevent horizontal expansion
+        for i in range(4):
+            self.thumbnails_layout.setColumnStretch(i, 0)
 
         scroll_area.setWidget(self.thumbnails_widget)
         main_layout.addWidget(scroll_area)
@@ -91,7 +97,7 @@ class ThemesTab(QWidget):
             # Show "no themes" message
             no_themes_label = QLabel("No theme files found in themes directory")
             no_themes_label.setAlignment(Qt.AlignCenter)
-            no_themes_label.setStyleSheet("color: #666; font-size: 14px; padding: 50px;")
+            no_themes_label.setStyleSheet("color: #7f8c8d; font-size: 14px; padding: 50px;")
             self.thumbnails_layout.addWidget(no_themes_label, 0, 0)
             return
 
@@ -100,40 +106,81 @@ class ThemesTab(QWidget):
 
         # Create thumbnails
         row, col = 0, 0
-        max_cols = 8  # Number of thumbnails per row
+        max_cols = 4  # Number of thumbnails per row (reduced for better fit)
 
         for yaml_file in yaml_files:
             try:
                 theme_name = self.get_theme_display_name(yaml_file)
-                background_path, background_type = self.get_theme_background_info(yaml_file)
-
-                # Determine the actual file path to use for thumbnail
-                thumbnail_path = self.get_thumbnail_path(background_path, background_type)
-
-                # Use the thumbnail path for thumbnail generation
-                if thumbnail_path and os.path.exists(thumbnail_path):
-                    # Use existing ThumbnailWidget which already handles all media types correctly
-                    thumbnail_widget = ThumbnailWidget(thumbnail_path, theme_name)
+                
+                # Generate full theme preview
+                preview_pixmap = self.generate_theme_preview(yaml_file)
+                
+                # Create thumbnail widget
+                thumbnail_widget = ThumbnailWidget("", theme_name)
+                
+                if preview_pixmap:
+                    # Use the full theme preview
+                    thumbnail_widget.set_pixmap(preview_pixmap)
                 else:
-                    # Create a placeholder thumbnail if no valid background found
-                    thumbnail_widget = ThumbnailWidget("", theme_name)
-
-                thumbnail_widget.clicked.connect(
-                    lambda path, theme_path=str(yaml_file): self.on_theme_selected(theme_path))
+                    # Fallback to background-only if preview generation fails
+                    background_path, background_type = self.get_theme_background_info(yaml_file)
+                    thumbnail_path = self.get_thumbnail_path(background_path, background_type)
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        thumbnail_widget = ThumbnailWidget(thumbnail_path, theme_name)
 
                 # Add special styling for theme thumbnails
                 thumbnail_widget.setStyleSheet(thumbnail_widget.styleSheet() + """
                     QWidget {
-                        border: 2px solid #0078d4;
+                        border: 2px solid #3498db;
                     }
                     QWidget:hover {
-                        border: 3px solid #005a9e;
-                        background-color: #e3f2fd;
+                        border: 3px solid #2980b9;
+                        background-color: #ebf5fb;
                     }
                 """)
 
-                self.thumbnails_layout.addWidget(thumbnail_widget, row, col)
-                self.thumbnails.append(thumbnail_widget)
+                # Create a container using absolute positioning (no layout)
+                container = QWidget()
+                container.setFixedSize(120, 100)
+                
+                # Position thumbnail inside container
+                thumbnail_widget.setParent(container)
+                thumbnail_widget.setGeometry(0, 0, 120, 100)
+                thumbnail_widget.clicked.connect(
+                    lambda path, theme_path=str(yaml_file): self.on_theme_selected(theme_path))
+                
+                # Add delete button as overlay in top-right corner
+                delete_btn = QPushButton("X", container)
+                delete_btn.setFixedSize(20, 20)
+                delete_btn.setMinimumSize(20, 20)
+                delete_btn.setMaximumSize(20, 20)
+                delete_btn.move(96, 2)
+                delete_btn.setToolTip(f"Delete {theme_name}")
+                delete_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: rgba(231, 76, 60, 0.9);
+                        color: white;
+                        border: none;
+                        border-radius: 10px;
+                        font-weight: bold;
+                        font-size: 11px;
+                        padding: 0px;
+                        margin: 0px;
+                        min-width: 20px;
+                        max-width: 20px;
+                        min-height: 20px;
+                        max-height: 20px;
+                    }
+                    QPushButton:hover {
+                        background-color: #c0392b;
+                    }
+                """)
+                delete_btn.clicked.connect(
+                    lambda checked, path=str(yaml_file), name=theme_name: self.delete_theme(path, name))
+                delete_btn.raise_()
+
+                self.thumbnails_layout.addWidget(container, row, col)
+                self.thumbnails.append(container)
 
                 col += 1
                 if col >= max_cols:
@@ -143,6 +190,10 @@ class ThemesTab(QWidget):
             except Exception as e:
                 self.logger.error(f"Error loading theme {yaml_file}: {e}")
                 continue
+
+        # Add spacer to push everything to the top
+        spacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.thumbnails_layout.addItem(spacer, row + 1, 0, 1, max_cols)
 
     def get_theme_display_name(self, yaml_file: Path) -> str:
         """Get display name for theme file"""
@@ -213,6 +264,74 @@ class ThemesTab(QWidget):
     def on_theme_selected(self, theme_path: str):
         """Handle theme selection"""
         self.theme_selected.emit(theme_path)
+
+    def generate_theme_preview(self, yaml_file: Path) -> 'QPixmap | None':
+        """Generate a full preview image of the theme including all elements"""
+        try:
+            from PySide6.QtGui import QPixmap, QImage
+            
+            # Load the full theme configuration
+            config_loader = ConfigLoader()
+            theme_config = config_loader.load_config(str(yaml_file), self.dev_width, self.dev_height)
+            
+            # Create a DisplayGenerator with the theme config
+            generator = DisplayGenerator(theme_config)
+            
+            # Generate sample metrics for preview
+            sample_metrics = {
+                'cpu_temperature': 45,
+                'gpu_temperature': 55,
+                'cpu_usage': 25,
+                'gpu_usage': 40,
+                'cpu_frequency': 3600,
+                'gpu_frequency': 1800
+            }
+            
+            # Generate a frame with the sample metrics (no rotation for thumbnail)
+            pil_image = generator.generate_frame_with_metrics(sample_metrics, apply_rotation=False)
+            
+            # Clean up the generator
+            generator.cleanup()
+            
+            # Convert PIL image to QPixmap
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            width, height = pil_image.size
+            image_data = pil_image.tobytes("raw", "RGB")
+            qimage = QImage(image_data, width, height, width * 3, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimage)
+            
+            return pixmap
+            
+        except Exception as e:
+            self.logger.error(f"Error generating theme preview for {yaml_file}: {e}")
+            return None
+        """Handle theme selection"""
+        self.theme_selected.emit(theme_path)
+
+    def delete_theme(self, theme_path: str, theme_name: str):
+        """Delete a theme file after confirmation"""
+        reply = QMessageBox.question(
+            self,
+            "Delete Theme",
+            f"Are you sure you want to delete the theme '{theme_name}'?\n\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                theme_file = Path(theme_path)
+                if theme_file.exists():
+                    theme_file.unlink()
+                    self.logger.info(f"Deleted theme: {theme_path}")
+                    self.refresh_themes()
+                else:
+                    QMessageBox.warning(self, "Error", "Theme file not found.")
+            except Exception as e:
+                self.logger.error(f"Error deleting theme {theme_path}: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to delete theme:\n{str(e)}")
 
     def get_first_theme_path(self) -> str:
         """Get the path of the first available theme"""

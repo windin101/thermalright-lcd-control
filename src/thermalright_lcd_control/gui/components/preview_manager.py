@@ -21,13 +21,24 @@ class PreviewManager:
         self.preview_label = preview_label
         self.text_style = text_style
 
-        # Display properties
-        self.preview_width = 320
-        self.preview_height = 240
+        # Display properties (device resolution)
+        self.device_width = 320
+        self.device_height = 240
+        # Preview properties (scaled for display)
+        self.preview_scale = 1.5
+        self.preview_width = int(self.device_width * self.preview_scale)
+        self.preview_height = int(self.device_height * self.preview_scale)
+        
         self.current_background_path = None
         self.current_foreground_path = None
+        self.background_enabled = True  # Background visibility toggle
+        self.background_color = (0, 0, 0)  # Background color when image disabled
+        self.background_opacity = 1.0  # Background opacity (0.0 - 1.0)
+        self.foreground_enabled = True  # Foreground visibility toggle
         self.foreground_opacity = 0.5
+        self.foreground_position = (0, 0)
         self.current_rotation = 0
+        self.background_scale_mode = "stretch"  # Default scaling mode
 
         # Components
         self.display_generator = None
@@ -36,8 +47,16 @@ class PreviewManager:
 
     def set_device_dimensions(self, width: int, height: int):
         """Set preview dimensions from detected device"""
-        self.preview_width = width
-        self.preview_height = height
+        self.device_width = width
+        self.device_height = height
+        self.preview_width = int(width * self.preview_scale)
+        self.preview_height = int(height * self.preview_scale)
+    
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor"""
+        self.preview_scale = scale
+        self.preview_width = int(self.device_width * self.preview_scale)
+        self.preview_height = int(self.device_height * self.preview_scale)
 
     def initialize_default_background(self, backgrounds_dir: str):
         """Initialize with the first background file found"""
@@ -85,15 +104,23 @@ class PreviewManager:
             return
 
         try:
+            # Only pass foreground path if foreground is enabled
+            foreground_path = self.current_foreground_path if self.foreground_enabled else None
+            
+            # Use device dimensions for generator (actual output resolution)
             display_config = DisplayConfig(
                 background_path=self.current_background_path,
                 background_type=self.determine_background_type(self.current_background_path),
-                output_width=self.preview_width,
-                output_height=self.preview_height,
+                output_width=self.device_width,
+                output_height=self.device_height,
                 rotation=self.current_rotation,
+                background_scale_mode=self.background_scale_mode,
+                background_enabled=self.background_enabled,
+                background_color=self.background_color,
+                background_alpha=self.background_opacity,
                 global_font_path=self.text_style.font_family,
-                foreground_image_path=self.current_foreground_path,
-                foreground_position=(0, 0),
+                foreground_image_path=foreground_path,
+                foreground_position=self.foreground_position,
                 foreground_alpha=self.foreground_opacity
             )
 
@@ -126,7 +153,7 @@ class PreviewManager:
             self.preview_label.setText(f"Error updating\npreview:\n{str(e)}")
 
     def pil_image_to_qpixmap(self, pil_image):
-        """Convert PIL Image to QPixmap"""
+        """Convert PIL Image to QPixmap and scale for preview"""
         try:
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
@@ -134,7 +161,19 @@ class PreviewManager:
             width, height = pil_image.size
             image_data = pil_image.tobytes("raw", "RGB")
             qimage = QImage(image_data, width, height, QImage.Format_RGB888)
-            return QPixmap.fromImage(qimage)
+            pixmap = QPixmap.fromImage(qimage)
+            
+            # Scale for preview display
+            if self.preview_scale != 1.0:
+                from PySide6.QtCore import Qt
+                pixmap = pixmap.scaled(
+                    self.preview_width, 
+                    self.preview_height, 
+                    Qt.KeepAspectRatio, 
+                    Qt.SmoothTransformation
+                )
+            
+            return pixmap
         except Exception:
             return None
 
@@ -148,15 +187,83 @@ class PreviewManager:
         self.current_foreground_path = file_path
         self.create_display_generator()
 
+    def set_background_enabled(self, enabled: bool):
+        """Enable/disable background visibility"""
+        self.background_enabled = enabled
+        # Update existing generator's config (frame_manager shares the same config object)
+        if self.display_generator and self.display_generator.config:
+            self.display_generator.config.background_enabled = enabled
+        else:
+            self.create_display_generator()
+
+    def is_background_enabled(self) -> bool:
+        """Check if background is enabled"""
+        return self.background_enabled
+
+    def set_background_opacity(self, opacity: int):
+        """Set background opacity (0 to 100)"""
+        self.background_opacity = opacity / 100.0  # Convert to 0.0 - 1.0
+        # Update existing generator's config instead of recreating
+        if self.display_generator and self.display_generator.config:
+            self.display_generator.config.background_alpha = self.background_opacity
+
+    def get_background_opacity(self) -> int:
+        """Get background opacity (0 to 100)"""
+        return int(getattr(self, 'background_opacity', 1.0) * 100)
+
+    def set_background_color(self, color: tuple):
+        """Set background color (r, g, b) used when background image is disabled"""
+        self.background_color = color
+        self.create_display_generator()
+
+    def get_background_color(self) -> tuple:
+        """Get background color"""
+        return self.background_color
+
+    def set_foreground_enabled(self, enabled: bool):
+        """Enable/disable foreground visibility"""
+        self.foreground_enabled = enabled
+        self.create_display_generator()
+
+    def is_foreground_enabled(self) -> bool:
+        """Check if foreground is enabled"""
+        return self.foreground_enabled
+
     def set_foreground_opacity(self, opacity: float):
         """Set foreground opacity (0.0 to 1.0)"""
         self.foreground_opacity = opacity
-        self.create_display_generator()
+        # Update existing generator's config instead of recreating
+        if self.display_generator and self.display_generator.config:
+            self.display_generator.config.foreground_alpha = opacity
+        else:
+            self.create_display_generator()
+
+    def set_foreground_position(self, x: int, y: int):
+        """Set foreground position (x, y)"""
+        self.foreground_position = (x, y)
+        # Update existing generator's config instead of recreating
+        if self.display_generator and self.display_generator.config:
+            self.display_generator.config.foreground_position = (x, y)
+        else:
+            self.create_display_generator()
+
+    def get_foreground_position(self) -> tuple:
+        """Get current foreground position"""
+        return self.foreground_position
 
     def set_rotation(self, rotation: int):
         """Set display rotation (0, 90, 180, 270)"""
         self.current_rotation = rotation
         self.create_display_generator()
+
+    def set_background_scale_mode(self, scale_mode: str):
+        """Set background scaling mode (stretch, scaled_fit, scaled_fill, centered, tiled)"""
+        self.background_scale_mode = scale_mode
+        self.create_display_generator()
+
+    def get_background_scale_mode(self) -> str:
+        """Get current background scaling mode"""
+        return self.background_scale_mode
 
     def clear_background(self, backgrounds_dir: str):
         """Clear background media"""

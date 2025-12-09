@@ -111,7 +111,79 @@ class FrameManager:
         self.background_frames = [image]
 
     def _resize_image(self, image: Image.Image) -> Image.Image:
-        image = image.resize((self.config.output_width, self.config.output_height), Image.Resampling.LANCZOS)
+        """Resize/scale image based on the configured scale mode"""
+        target_width = self.config.output_width
+        target_height = self.config.output_height
+        scale_mode = getattr(self.config, 'background_scale_mode', 'stretch')
+        
+        if scale_mode == "stretch":
+            # Stretch to fill (distorts aspect ratio)
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
+        elif scale_mode == "scaled_fit":
+            # Scale to fit within bounds (maintains aspect ratio, may have letterbox/pillarbox)
+            image.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
+            # Create a new image with the target size and paste the scaled image centered
+            result = Image.new('RGBA', (target_width, target_height), (0, 0, 0, 255))
+            x = (target_width - image.width) // 2
+            y = (target_height - image.height) // 2
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            result.paste(image, (x, y), image if image.mode == 'RGBA' else None)
+            image = result
+        
+        elif scale_mode == "scaled_fill":
+            # Scale to fill (maintains aspect ratio, crops overflow)
+            img_ratio = image.width / image.height
+            target_ratio = target_width / target_height
+            
+            if img_ratio > target_ratio:
+                # Image is wider - scale by height, crop width
+                new_height = target_height
+                new_width = int(target_height * img_ratio)
+            else:
+                # Image is taller - scale by width, crop height
+                new_width = target_width
+                new_height = int(target_width / img_ratio)
+            
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            # Crop to center
+            x = (new_width - target_width) // 2
+            y = (new_height - target_height) // 2
+            image = image.crop((x, y, x + target_width, y + target_height))
+        
+        elif scale_mode == "centered":
+            # Center without scaling (may crop or show background)
+            result = Image.new('RGBA', (target_width, target_height), (0, 0, 0, 255))
+            x = (target_width - image.width) // 2
+            y = (target_height - image.height) // 2
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            # Handle case where image is larger than target
+            src_x = max(0, -x)
+            src_y = max(0, -y)
+            dst_x = max(0, x)
+            dst_y = max(0, y)
+            paste_width = min(image.width - src_x, target_width - dst_x)
+            paste_height = min(image.height - src_y, target_height - dst_y)
+            cropped = image.crop((src_x, src_y, src_x + paste_width, src_y + paste_height))
+            result.paste(cropped, (dst_x, dst_y), cropped if cropped.mode == 'RGBA' else None)
+            image = result
+        
+        elif scale_mode == "tiled":
+            # Tile the image to fill the target area
+            result = Image.new('RGBA', (target_width, target_height), (0, 0, 0, 255))
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            for y in range(0, target_height, image.height):
+                for x in range(0, target_width, image.width):
+                    result.paste(image, (x, y), image if image.mode == 'RGBA' else None)
+            image = result
+        
+        else:
+            # Default to stretch
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
         return image
@@ -250,23 +322,47 @@ class FrameManager:
 
     def _gif_duration(self, frame: Image.Image) -> float:
         # Get duration from GIF metadata
+        # Enforce minimum duration of 67ms (max ~15fps) to prevent UI blocking
+        MIN_FRAME_DURATION = 0.067  # ~15fps max
         try:
-            return frame.info.get('duration', 100) / 1000.0  # Convert ms to seconds
+            duration = frame.info.get('duration', 100) / 1000.0  # Convert ms to seconds
+            return max(duration, MIN_FRAME_DURATION)
         except:
             return 0.1  # Default fallback
 
     def get_current_frame(self) -> Image.Image:
-        """Get the current background frame"""
+        """Get the current background frame (returns a copy to prevent modification of cached frames)"""
+        # If background is disabled, return a solid color frame
+        if not getattr(self.config, 'background_enabled', True):
+            bg_color = getattr(self.config, 'background_color', (0, 0, 0))
+            return Image.new('RGBA', (self.config.output_width, self.config.output_height), (*bg_color, 255))
+
         current_time = time.time()
+        elapsed = current_time - self.frame_start_time
 
-        if current_time - self.frame_start_time >= self.frame_duration:
+        # Frame skipping: if we're behind schedule, skip frames to catch up
+        if elapsed >= self.frame_duration:
+            if self.config.background_type == BackgroundType.GIF:
+                # Calculate how many frames to skip
+                frames_to_skip = 0
+                accumulated_time = 0
+                temp_index = self.current_frame_index
+                
+                while accumulated_time < elapsed and frames_to_skip < len(self.background_frames):
+                    temp_index = (temp_index + 1) % len(self.background_frames)
+                    accumulated_time += self.gif_durations[temp_index]
+                    frames_to_skip += 1
+                
+                # Skip to the appropriate frame (at least 1)
+                self.current_frame_index = (self.current_frame_index + max(1, frames_to_skip)) % len(self.background_frames)
+                self.frame_duration = self.gif_durations[self.current_frame_index]
+            else:
+                self.current_frame_index = (self.current_frame_index + 1) % len(self.background_frames)
+            
             self.frame_start_time = current_time
-            self.current_frame_index = (self.current_frame_index + 1) % len(self.background_frames)
 
-        if self.config.background_type == BackgroundType.GIF:
-            self.frame_duration = self.gif_durations[self.current_frame_index]
-
-        return self.background_frames[self.current_frame_index]
+        # Return a COPY to prevent text rendering from modifying the cached frame
+        return self.background_frames[self.current_frame_index].copy()
 
     def get_current_frame_info(self) -> Tuple[int, float]:
         """

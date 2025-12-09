@@ -31,13 +31,13 @@ class ThumbnailWidget(QWidget):
         self.setFixedSize(120, 100)
         self.setStyleSheet("""
             QWidget {
-                background-color: white;
-                border: 1px solid #ddd;
-                border-radius: 5px;
+                background-color: #ffffff;
+                border: 1px solid #dcdde1;
+                border-radius: 8px;
             }
             QWidget:hover {
-                background-color: #f0f0f0;
-                border: 2px solid #0078d4;
+                background-color: #f5f6fa;
+                border: 2px solid #3498db;
             }
         """)
 
@@ -59,10 +59,10 @@ class ThumbnailWidget(QWidget):
         self.thumb_label.setAlignment(Qt.AlignCenter)
         self.thumb_label.setStyleSheet("""
             QLabel {
-                background-color: white;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                color: #333;
+                background-color: #f5f6fa;
+                border: 1px solid #dcdde1;
+                border-radius: 4px;
+                color: #2c3e50;
             }
         """)
 
@@ -71,9 +71,9 @@ class ThumbnailWidget(QWidget):
         self.video_widget.setFixedSize(110, 70)
         self.video_widget.setStyleSheet("""
             QVideoWidget {
-                background-color: white;
-                border: 1px solid #ccc;
-                border-radius: 3px;
+                background-color: #f5f6fa;
+                border: 1px solid #dcdde1;
+                border-radius: 4px;
             }
         """)
 
@@ -91,7 +91,7 @@ class ThumbnailWidget(QWidget):
                 background-color: transparent;
                 border: none;
                 font-size: 10px;
-                color: #333;
+                color: #2c3e50;
             }
         """)
 
@@ -132,6 +132,15 @@ class ThumbnailWidget(QWidget):
             self.thumb_label.setPixmap(scaled)
         else:
             self.thumb_label.setText("Image\nUnavailable")
+
+    def set_pixmap(self, pixmap: QPixmap):
+        """Set a pixmap directly as the thumbnail"""
+        self.content_stack.setCurrentIndex(0)
+        if pixmap and not pixmap.isNull():
+            scaled = pixmap.scaled(110, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.thumb_label.setPixmap(scaled)
+        else:
+            self.thumb_label.setText("Preview\nUnavailable")
 
     def create_gif_thumbnail(self):
         """Create thumbnail for a GIF"""
@@ -196,10 +205,10 @@ class ThumbnailWidget(QWidget):
             self.thumb_label.setText("📹\nVIDEO")
             self.thumb_label.setStyleSheet("""
                 QLabel {
-                    background-color: #2c3e50;
-                    border: 1px solid #ccc;
-                    border-radius: 3px;
-                    color: white;
+                    background-color: #bdc3c7;
+                    border: 1px solid #dcdde1;
+                    border-radius: 4px;
+                    color: #2c3e50;
                     font-size: 14px;
                 }
             """)
@@ -209,10 +218,10 @@ class ThumbnailWidget(QWidget):
             self.thumb_label.setText("📹\nVIDEO")
             self.thumb_label.setStyleSheet("""
                 QLabel {
-                    background-color: #2c3e50;
-                    border: 1px solid #ccc;
-                    border-radius: 3px;
-                    color: white;
+                    background-color: #bdc3c7;
+                    border: 1px solid #dcdde1;
+                    border-radius: 4px;
+                    color: #2c3e50;
                     font-size: 14px;
                 }
             """)

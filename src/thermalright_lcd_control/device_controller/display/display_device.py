@@ -34,6 +34,8 @@ class DisplayDevice(ABC):
         self.last_modified = pathlib.Path(self.config_file).stat().st_mtime_ns
         self.logger = self.logger = LoggerConfig.setup_service_logger()
         self._generator = self._build_generator()
+        self._frame_lock = threading.Lock()  # Prevent overlapping frame updates
+        self._running = False
         self.logger.debug(f"DisplayDevice initialized with header: {self.header}")
 
     def __getitem__(self, __name):
@@ -105,17 +107,34 @@ class DisplayDevice(ABC):
 
     def start(self):
         self.logger.info(f"Display device ({self.vid}:{self.pid}-{self.width}x{self.height}) running ({self.mode} mode)")
+        self._running = True
         self._run()
 
-    def _run(self):
+    def stop(self):
+        self._running = False
 
-        img, delay_time = self._get_generator().get_frame_with_duration()
-        header = self.get_header()
-        img_bytes = header + self._encode_image(img)
-        frame_packets = self._prepare_frame_packets(img_bytes)
-        for packet in frame_packets:
-            self.send_packet(packet)
-        threading.Timer(interval=delay_time, function=self._run).start()
+    def _run(self):
+        if not self._running:
+            return
+
+        # Use lock to prevent overlapping frame updates (reduces smearing)
+        with self._frame_lock:
+            start_time = time.time()
+            
+            img, delay_time = self._get_generator().get_frame_with_duration()
+            header = self.get_header()
+            img_bytes = header + self._encode_image(img)
+            frame_packets = self._prepare_frame_packets(img_bytes)
+            
+            for packet in frame_packets:
+                self.send_packet(packet)
+            
+            # Account for time spent generating and sending the frame
+            elapsed = time.time() - start_time
+            adjusted_delay = max(0.01, delay_time - elapsed)  # Minimum 10ms delay
+        
+        if self._running:
+            threading.Timer(interval=adjusted_delay, function=self._run).start()
 
     @abstractmethod
     def send_packet(self, packet: bytes):

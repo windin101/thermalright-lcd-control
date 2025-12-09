@@ -29,10 +29,73 @@ and added the option to select a collection of images to cycle through on the di
 
 ## Features
 
-- 🖥️ **User-friendly GUI** - Modern interface for device configuration
+### Core Features
+- 🖥️ **User-friendly GUI** - Modern interface with unified stylesheet
 - ⚙️ **Background service** - Automatic device management
 - 🎨 **Theme support** - Customizable display themes and backgrounds
 - 📋 **System integration** - Native Linux desktop integration
+
+### Display Composition
+- 🖼️ **Background Controls**
+  - Multiple scaling modes: Stretch, Fit, Fill, Centered, Tiled
+  - Background colour picker for solid colour backgrounds
+  - Opacity control with smooth slider
+  - Support for images, GIFs, videos, and image collections
+
+- 🎭 **Foreground Overlay**
+  - Draggable foreground image positioning
+  - Opacity control
+  - X/Y position fine-tuning with spinboxes
+
+### Text & Metrics Display
+- 📅 **Enhanced Date Widget**
+  - Show/hide weekday and year
+  - Multiple formats: Default (Tuesday 10 December), Short (Tue Dec 10), Numeric (10/12)
+  - Draggable positioning
+
+- ⏰ **Enhanced Time Widget**
+  - 12/24-hour format toggle
+  - Show/hide seconds
+  - AM/PM indicator option
+  - Draggable positioning
+
+- 📊 **System Metrics**
+  - CPU & GPU temperature, usage, and frequency
+  - Customizable labels and units
+  - Label positioning: Left, Right, Above, Below, or None
+  - Frequency format toggle (MHz/GHz)
+  - Individual font size control per metric
+
+- ✏️ **Free Text Widgets**
+  - 4 customizable text fields
+  - Draggable positioning
+  - Individual enable/disable control
+
+### Text Styling
+- 🎨 **Font Controls**
+  - System font family selector
+  - Global and per-widget font size
+  - Colour picker with live preview
+
+- ✨ **Text Effects**
+  - **Shadow**: Colour, X/Y offset, blur radius
+  - **Outline**: Colour and width
+  - **Gradient**: Two-colour gradients with vertical, horizontal, or diagonal direction
+
+### Editing Tools
+- 📐 **Snap-to-Grid**
+  - Enable/disable grid snapping
+  - Configurable grid size (5-50px)
+  - Visual grid overlay for precise positioning
+
+- 🔄 **Display Rotation**
+  - 0°, 90°, 180°, 270° rotation options
+
+### User Interface
+- 🎨 **Modern Stylesheet** - Clean, professional appearance with consistent styling
+- 🌙 **Dark Theme Ready** - Dark theme stylesheet included for future use
+- 🖱️ **Drag & Drop** - Visual feedback on hover and drag with border highlights
+- 💾 **Theme Save/Load** - Save configurations as reusable themes
 
 ## Supported devices
 

@@ -17,7 +17,7 @@ from thermalright_lcd_control.gui.styles import MODERN_STYLESHEET
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
-from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, LabelPosition
+from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition
 
 
 class MediaPreviewUI(QMainWindow):
@@ -1042,18 +1042,36 @@ class MediaPreviewUI(QMainWindow):
                         label_position=label_pos
                     ))
         
-        return date_config, time_config, metrics_configs
+        # Text configs (free text widgets)
+        text_configs = []
+        if hasattr(self, 'text_widgets'):
+            for text_name, widget in self.text_widgets.items():
+                if widget and widget.enabled:
+                    pos = widget.pos()
+                    device_x = int(pos.x() / self.preview_scale)
+                    device_y = int(pos.y() / self.preview_scale)
+                    
+                    text_configs.append(TextConfig(
+                        text=widget.get_text(),
+                        position=(device_x, device_y),
+                        font_size=widget.get_font_size(),
+                        color=text_color,
+                        enabled=True
+                    ))
+        
+        return date_config, time_config, metrics_configs, text_configs
 
     def update_preview_widget_configs(self):
         """Update preview manager with current widget configs"""
         if not self.preview_manager:
             return
         
-        date_config, time_config, metrics_configs = self.collect_widget_configs()
+        date_config, time_config, metrics_configs, text_configs = self.collect_widget_configs()
         self.preview_manager.update_widget_configs(
             date_config=date_config,
             time_config=time_config,
-            metrics_configs=metrics_configs
+            metrics_configs=metrics_configs,
+            text_configs=text_configs
         )
 
     def on_foreground_dragged(self, x, y):
@@ -1128,16 +1146,19 @@ class MediaPreviewUI(QMainWindow):
         """Handle free text widget toggle"""
         if text_name in self.text_widgets:
             self.text_widgets[text_name].set_enabled(enabled)
+            self.update_preview_widget_configs()
 
     def on_text_changed(self, text_name, text):
         """Handle free text content change"""
         if text_name in self.text_widgets:
             self.text_widgets[text_name].set_text(text)
+            self.update_preview_widget_configs()
 
     def on_text_font_size_changed(self, text_name, size):
         """Handle free text font size change"""
         if text_name in self.text_widgets:
             self.text_widgets[text_name].set_font_size(size)
+            self.update_preview_widget_configs()
 
     def on_opacity_text_changed(self, text):
         """Handle opacity text input change (real-time)"""

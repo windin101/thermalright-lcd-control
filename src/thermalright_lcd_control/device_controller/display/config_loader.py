@@ -144,6 +144,12 @@ class ConfigLoader:
         time_config = None
         if display_data["time"]["enabled"]:
             time_config = self._parse_time_config(display_data["time"])
+        # Parse custom text configurations
+        text_configs = []
+        custom_texts = display_data.get("custom_texts", [])
+        for text_data in custom_texts:
+            if text_data.get("enabled", True):
+                text_configs.append(self._parse_text_config(text_data))
         # Parse foreground configuration
         foreground_path = None
         foreground_position = (0, 0)
@@ -210,6 +216,7 @@ class ConfigLoader:
             metrics_configs=metrics_configs,
             date_config=date_config,
             time_config=time_config,
+            text_configs=text_configs,
             shadow_enabled=shadow_enabled,
             shadow_color=shadow_color,
             shadow_offset_x=shadow_offset_x,

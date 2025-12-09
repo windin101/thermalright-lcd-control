@@ -139,6 +139,7 @@ class PreviewManager:
                 date_config=self.date_config,
                 time_config=self.time_config,
                 metrics_configs=self.metrics_configs if self.metrics_configs else [],
+                text_configs=self.text_configs if hasattr(self, 'text_configs') and self.text_configs else [],
                 # Text effects from text_style
                 shadow_enabled=self.text_style.shadow_enabled,
                 shadow_color=qcolor_to_rgba(self.text_style.shadow_color),
@@ -363,6 +364,7 @@ class PreviewManager:
             self.display_generator.config.date_config = self.date_config
             self.display_generator.config.time_config = self.time_config
             self.display_generator.config.metrics_configs = self.metrics_configs
+            self.display_generator.config.text_configs = self.text_configs
             self.update_preview_frame()
         else:
             self.create_display_generator()

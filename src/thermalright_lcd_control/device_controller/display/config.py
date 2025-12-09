@@ -157,6 +157,9 @@ class DisplayConfig:
     # Time configuration
     time_config: Optional['TimeConfig'] = None
 
+    # Custom text configuration
+    text_configs: List['TextConfig'] = None
+
     # Text effects configuration
     # Shadow
     shadow_enabled: bool = False

@@ -99,6 +99,11 @@ class DisplayGenerator:
         # Draw time (HH:MM format)
         self.text_renderer.render_time(draw, result, self.config.time_config)
 
+        # Draw custom text widgets
+        if self.config.text_configs:
+            for text_config in self.config.text_configs:
+                self.text_renderer.render_custom_text(draw, result, text_config)
+
         convert = result.convert('RGB')
 
         # Apply rotation if configured and requested

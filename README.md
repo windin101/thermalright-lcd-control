@@ -8,33 +8,10 @@ A Linux application for controlling Thermalright LCD displays with an intuitive 
 
 ## Overview
 
-Thermalright LCD Control provides an easy-to-use interface for managing your Thermalright LCD display on Linux systems.
+This is a fork of the amazing work by rejeb and others who have done all the really hard work with the reverse engenering of the communications protocols, all I am adding here is aditional functionality to the the GUI and providing a small amount of polish.
 
-The application features both a desktop GUI and a background service for seamless device control.
-
-I performed reverse engineering on the Thermalright Windows application to understand its internal mechanisms.
-
-During my analysis, I identified four different USB VID:PID combinations handled by the Windows application, all sharing
-the same interaction logic.
-
-Since I have access only to the Frozen Warframe 420 BLACK ARGB, my testing was limited exclusively to this specific
-device.
-
-Also, this application implements reading metrics from Amd, Nvidia, and Intel GPU. My testing was limited to Nvidia GPU.
-
-Feel free to contribute to this project and let me know if the application is working with other devices.
-
-For backgrounds, i have included all media formats supported by the Windows application
-and added the option to select a collection of images to cycle through on the display.
-
-## Features
-
-### Core Features
+## New Features
 - 🖥️ **User-friendly GUI** - Modern interface with unified stylesheet
-- ⚙️ **Background service** - Automatic device management
-- 🎨 **Theme support** - Customizable display themes and backgrounds
-- 📋 **System integration** - Native Linux desktop integration
-
 ### Display Composition
 - 🖼️ **Background Controls**
   - Multiple scaling modes: Stretch, Fit, Fill, Centered, Tiled
@@ -97,6 +74,35 @@ and added the option to select a collection of images to cycle through on the di
 - 🖱️ **Drag & Drop** - Visual feedback on hover and drag with border highlights
 - 💾 **Theme Save/Load** - Save configurations as reusable themes
 
+
+Thermalright LCD Control provides an easy-to-use interface for managing your Thermalright LCD display on Linux systems.
+
+The application features both a desktop GUI and a background service for seamless device control.
+
+I performed reverse engineering on the Thermalright Windows application to understand its internal mechanisms.
+
+During my analysis, I identified four different USB VID:PID combinations handled by the Windows application, all sharing
+the same interaction logic.
+
+Since I have access only to the Frozen Warframe 420 BLACK ARGB, my testing was limited exclusively to this specific
+device.
+
+Also, this application implements reading metrics from Amd, Nvidia, and Intel GPU. My testing was limited to Nvidia GPU.
+
+Feel free to contribute to this project and let me know if the application is working with other devices.
+
+For backgrounds, i have included all media formats supported by the Windows application
+and added the option to select a collection of images to cycle through on the display.
+
+## Features
+
+### Core Features
+- ⚙️ **Background service** - Automatic device management
+- 🎨 **Theme support** - Customizable display themes and backgrounds
+- 📋 **System integration** - Native Linux desktop integration
+
+
+
 ## Supported devices
 
 | VID:PID   | SCREEN RESOLUTION |
@@ -110,7 +116,7 @@ and added the option to select a collection of images to cycle through on the di
 ### Download Packages
 
 Download the appropriate package for your Linux distribution from
-the [Releases](https://www.github.com/rejeb/thermalright-lcd-control/releases) page:
+the [Releases](https://www.github.com/windin101/thermalright-lcd-control/releases) page:
 
 - **`.targ.gz`** - For any distribution
 
@@ -125,7 +131,7 @@ the [Releases](https://www.github.com/rejeb/thermalright-lcd-control/releases) p
 
 2. **Download** the `.tar.gz` package:
    ```bash
-   wget https://github.com/rejeb/thermalright-lcd-control/releases/download/1.3.1/thermalright-lcd-control-1.3.1.tar.gz -P /tmp/
+   wget https://github.com/windin101/thermalright-lcd-control/releases/download/1.3.1/thermalright-lcd-control-1.3.1.tar.gz -P /tmp/
    ```
 
 3. **Untar** the archive file:

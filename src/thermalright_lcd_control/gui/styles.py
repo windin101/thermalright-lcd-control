@@ -5,6 +5,92 @@
 Modern stylesheet for Thermalright LCD Control GUI
 """
 
+from PySide6.QtWidgets import QApplication, QComboBox, QSpinBox, QDoubleSpinBox
+from PySide6.QtGui import QPalette, QColor
+
+
+def _create_input_palette():
+    """Create a palette suitable for input widgets (spinbox, combobox)."""
+    palette = QPalette()
+    
+    # Base colors for input widgets
+    palette.setColor(QPalette.Window, QColor(248, 249, 250))       # Light grey for button area
+    palette.setColor(QPalette.WindowText, QColor(44, 62, 80))      # Dark text
+    palette.setColor(QPalette.Base, QColor(255, 255, 255))         # White input background
+    palette.setColor(QPalette.AlternateBase, QColor(245, 246, 250))
+    palette.setColor(QPalette.Text, QColor(44, 62, 80))            # Dark text in inputs
+    palette.setColor(QPalette.Button, QColor(248, 249, 250))       # Light button background
+    palette.setColor(QPalette.ButtonText, QColor(44, 62, 80))      # Dark button text (for arrows)
+    palette.setColor(QPalette.Highlight, QColor(52, 152, 219))     # Blue selection
+    palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+    palette.setColor(QPalette.Light, QColor(255, 255, 255))        # For 3D effects
+    palette.setColor(QPalette.Dark, QColor(160, 160, 160))         # For 3D effects/arrows
+    palette.setColor(QPalette.Mid, QColor(200, 200, 200))          # For borders
+    palette.setColor(QPalette.Shadow, QColor(100, 100, 100))       # For shadows/arrows
+    
+    # Disabled state
+    palette.setColor(QPalette.Disabled, QPalette.Text, QColor(149, 165, 166))
+    palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(149, 165, 166))
+    palette.setColor(QPalette.Disabled, QPalette.Base, QColor(240, 240, 240))
+    
+    return palette
+
+
+def setup_application_palette(app: QApplication):
+    """Set up the application palette for proper widget colors with Fusion style."""
+    palette = app.palette()
+    
+    # Base colors
+    palette.setColor(QPalette.Window, QColor(245, 246, 250))       # Light grey background
+    palette.setColor(QPalette.WindowText, QColor(44, 62, 80))      # Dark text
+    palette.setColor(QPalette.Base, QColor(255, 255, 255))         # White input backgrounds
+    palette.setColor(QPalette.AlternateBase, QColor(245, 246, 250))
+    palette.setColor(QPalette.Text, QColor(44, 62, 80))            # Dark text in inputs
+    palette.setColor(QPalette.Button, QColor(248, 249, 250))       # Light button background
+    palette.setColor(QPalette.ButtonText, QColor(44, 62, 80))      # Dark button text
+    palette.setColor(QPalette.Highlight, QColor(52, 152, 219))     # Blue selection
+    palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))  # White text on selection
+    palette.setColor(QPalette.Light, QColor(255, 255, 255))
+    palette.setColor(QPalette.Dark, QColor(160, 160, 160))
+    palette.setColor(QPalette.Mid, QColor(200, 200, 200))
+    palette.setColor(QPalette.Shadow, QColor(100, 100, 100))
+    
+    # Disabled colors
+    palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor(149, 165, 166))
+    palette.setColor(QPalette.Disabled, QPalette.Text, QColor(149, 165, 166))
+    palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(149, 165, 166))
+    
+    app.setPalette(palette)
+
+
+def style_input_widget(widget):
+    """Apply proper styling to input widgets (QComboBox, QSpinBox, QDoubleSpinBox).
+    
+    This overrides stylesheet inheritance by setting the palette directly on the widget,
+    ensuring proper colors and visible arrows/buttons.
+    """
+    # Clear any inherited stylesheet
+    widget.setStyleSheet("")
+    
+    # Apply input palette
+    widget.setPalette(_create_input_palette())
+    
+    # For combobox, also style the popup view
+    if isinstance(widget, QComboBox):
+        view = widget.view()
+        if view:
+            view.setStyleSheet("")
+            view.setPalette(_create_input_palette())
+
+
+def fix_combobox_popup(combobox):
+    """Fix combobox popup colors for proper visibility on all platforms.
+    
+    Alias for style_input_widget for backwards compatibility.
+    """
+    style_input_widget(combobox)
+
+
 MODERN_STYLESHEET = """
 /* ===== Global Styles ===== */
 QMainWindow {
@@ -104,7 +190,8 @@ QTabBar::tab:hover:!selected {
 }
 
 /* ===== Inputs ===== */
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+/* Only style QLineEdit - let QSpinBox and QComboBox use native Fusion styling */
+QLineEdit {
     background-color: #ffffff;
     border: 1px solid #dcdde1;
     border-radius: 6px;
@@ -113,46 +200,14 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     color: #2c3e50;
 }
 
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+QLineEdit:focus {
     border: 2px solid #3498db;
     padding: 5px 9px;
 }
 
-QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+QLineEdit:disabled {
     background-color: #ecf0f1;
     color: #95a5a6;
-}
-
-/* Combo box dropdown */
-QComboBox::drop-down {
-    border: none;
-    width: 24px;
-}
-
-QComboBox::down-arrow {
-    width: 12px;
-    height: 12px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    border: 1px solid #dcdde1;
-    border-radius: 4px;
-    selection-background-color: #3498db;
-    selection-color: white;
-}
-
-/* SpinBox buttons */
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-    background-color: #ecf0f1;
-    border: none;
-    width: 20px;
-}
-
-QSpinBox::up-button:hover, QSpinBox::down-button:hover,
-QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-    background-color: #d5dbdb;
 }
 
 /* ===== Sliders ===== */
@@ -185,11 +240,12 @@ QSlider::sub-page:horizontal {
 QCheckBox {
     spacing: 8px;
     color: #2c3e50;
+    margin: 2px 0;
 }
 
 QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border: 2px solid #bdc3c7;
     border-radius: 4px;
     background-color: #ffffff;
@@ -198,6 +254,7 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: #3498db;
     border-color: #3498db;
+    image: none;
 }
 
 QCheckBox::indicator:hover {
@@ -388,7 +445,7 @@ QTabBar::tab:hover:!selected {
 }
 
 /* ===== Inputs ===== */
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+QLineEdit {
     background-color: #1a1a2e;
     border: 1px solid #3a3a5a;
     border-radius: 6px;
@@ -397,7 +454,7 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     color: #eaeaea;
 }
 
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+QLineEdit:focus {
     border: 2px solid #3282b8;
     padding: 5px 9px;
 }

@@ -6,6 +6,11 @@ paths:
   backgrounds_dir: "./resources/themes/backgrounds"
   foregrounds_dir: "./resources/themes/foregrounds"
   service_config: "./resources/config"
+
+# Default theme to load on startup (filename only, e.g., "config_1.yaml")
+# If not set or file not found, loads most recently modified theme
+default_theme: "config_1.yaml"
+
 window:
   default_width: 1920
   default_height: 1080

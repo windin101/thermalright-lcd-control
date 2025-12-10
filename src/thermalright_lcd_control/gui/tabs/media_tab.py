@@ -236,14 +236,14 @@ class MediaTab(QWidget):
             first_image = image_files[0]
 
             thumbnail_btn = QPushButton()
-            thumbnail_btn.setFixedSize(100, 100)
+            thumbnail_btn.setFixedSize(260, 160)
             thumbnail_btn.setStyleSheet("border: 2px solid #bdc3c7; border-radius: 8px; background-color: #ffffff;")
 
             pixmap = QPixmap(str(first_image))
             if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled_pixmap = pixmap.scaled(256, 156, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 thumbnail_btn.setIcon(QIcon(scaled_pixmap))
-                thumbnail_btn.setIconSize(QSize(96, 96))
+                thumbnail_btn.setIconSize(QSize(256, 156))
 
             # Nom d'affichage pour la collection
             display_name = f"Collection ({len(image_files)} images)"
@@ -256,13 +256,14 @@ class MediaTab(QWidget):
 
             # Ajouter au layout avec le nom
             container = QWidget()
+            container.setFixedSize(270, 210)
             container_layout = QVBoxLayout(container)
             container_layout.addWidget(thumbnail_btn)
 
             name_label = QLabel(display_name)
             name_label.setAlignment(Qt.AlignCenter)
             name_label.setWordWrap(True)
-            name_label.setMaximumWidth(100)
+            name_label.setMaximumWidth(260)
             container_layout.addWidget(name_label)
 
             return container
@@ -431,9 +432,9 @@ class MediaTab(QWidget):
 
                 self.logger.debug(f"Found {len(files)} media files in {media_dir} (sorted with user-added first)")
 
-                # Create thumbnails in grid (4 columns)
+                # Create thumbnails in grid (3 columns to fit larger thumbnails)
                 row, col = 0, 0
-                max_cols = 8
+                max_cols = 3
 
                 for i, file_path in enumerate(files):
                     if file_path.is_dir():
@@ -460,18 +461,18 @@ class MediaTab(QWidget):
 
                         # Create container with delete button overlay
                         container = QWidget()
-                        container.setFixedSize(120, 100)
+                        container.setFixedSize(270, 210)
                         
                         # Position thumbnail inside container
                         thumbnail.setParent(container)
-                        thumbnail.setGeometry(0, 0, 120, 100)
+                        thumbnail.setGeometry(0, 0, 270, 210)
                         
                         # Add delete button as overlay in top-right corner
                         delete_btn = QPushButton("X", container)
                         delete_btn.setFixedSize(20, 20)
                         delete_btn.setMinimumSize(20, 20)
                         delete_btn.setMaximumSize(20, 20)
-                        delete_btn.move(96, 2)
+                        delete_btn.move(246, 2)
                         delete_btn.setToolTip(f"Delete {display_name}")
                         delete_btn.setStyleSheet("""
                             QPushButton {

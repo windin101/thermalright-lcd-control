@@ -4,12 +4,11 @@
 """Controls manager for UI composition controls"""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
                                QGroupBox, QLabel, QLineEdit, QPushButton,
-                               QSpinBox, QDoubleSpinBox, QCheckBox, QApplication, QComboBox,
-                               QColorDialog, QFontComboBox, QFrame)
-from PySide6.QtWidgets import QSlider
+                               QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
+                               QColorDialog, QFontComboBox, QFrame, QSlider)
 
 from thermalright_lcd_control.gui.widgets.draggable_widget import TextStyleConfig
 
@@ -57,6 +56,17 @@ class ControlsManager:
         self.bar_border_color_btns = {}
         self.bar_corner_radius_spins = {}
         
+        # Circular graph widget controls
+        self.arc_checkboxes = {}
+        self.arc_metric_combos = {}
+        self.arc_radius_spins = {}
+        self.arc_thickness_spins = {}
+        self.arc_start_angle_spins = {}
+        self.arc_sweep_angle_spins = {}
+        self.arc_fill_color_btns = {}
+        self.arc_bg_color_btns = {}
+        self.arc_border_color_btns = {}
+        
         # Background scaling control
         self.background_enabled_checkbox = None
         self.background_scale_combo = None
@@ -79,32 +89,8 @@ class ControlsManager:
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         controls_container = QWidget()
-        controls_container.setStyleSheet("""
-            QWidget { background: transparent; }
-            QComboBox { 
-                background-color: #ffffff; 
-                color: #000000; 
-                border: 1px solid #bdc3c7;
-                border-radius: 3px;
-                padding: 2px 5px;
-            }
-            QComboBox:hover {
-                border: 1px solid #3498db;
-            }
-            QComboBox::drop-down {
-                background-color: #ecf0f1;
-            }
-            QComboBox QAbstractItemView { 
-                background-color: #ffffff; 
-                color: #000000; 
-                selection-background-color: #3498db;
-                selection-color: #ffffff;
-                border: 1px solid #bdc3c7;
-            }
-        """)
         controls_layout = QVBoxLayout(controls_container)
         controls_layout.setContentsMargins(0, 0, 4, 0)
         controls_layout.setSpacing(6)
@@ -112,7 +98,6 @@ class ControlsManager:
         # Add all control sections (action buttons are separate, not in scroll area)
         # Rotation and Snap to Grid side by side
         rotation_snap_container = QWidget()
-        rotation_snap_container.setStyleSheet("QWidget { background: transparent; }")
         rotation_snap_layout = QHBoxLayout(rotation_snap_container)
         rotation_snap_layout.setContentsMargins(0, 0, 0, 0)
         rotation_snap_layout.setSpacing(6)
@@ -122,7 +107,6 @@ class ControlsManager:
         
         # Background and Foreground side by side
         bg_fg_container = QWidget()
-        bg_fg_container.setStyleSheet("QWidget { background: transparent; }")
         bg_fg_layout = QHBoxLayout(bg_fg_container)
         bg_fg_layout.setContentsMargins(0, 0, 0, 0)
         bg_fg_layout.setSpacing(6)
@@ -135,6 +119,7 @@ class ControlsManager:
         controls_layout.addStretch()
 
         scroll_area.setWidget(controls_container)
+        
         return scroll_area
 
     def _create_rotation_controls(self) -> QGroupBox:
@@ -146,6 +131,7 @@ class ControlsManager:
         rotation_layout.addWidget(rotation_label, alignment=Qt.AlignVCenter)
 
         self.rotation_combo = QComboBox()
+
         self.rotation_combo.addItem("0°", 0)
         self.rotation_combo.addItem("90°", 90)
         self.rotation_combo.addItem("180°", 180)
@@ -262,6 +248,7 @@ class ControlsManager:
         scaling_label.setFixedWidth(55)
         scale_color_layout.addWidget(scaling_label, alignment=Qt.AlignVCenter)
         self.background_scale_combo = QComboBox()
+
         self.background_scale_combo.addItem("Stretch", "stretch")
         self.background_scale_combo.addItem("Scaled (Fit)", "scaled_fit")
         self.background_scale_combo.addItem("Scaled (Fill)", "scaled_fill")
@@ -270,28 +257,6 @@ class ControlsManager:
         self.background_scale_combo.setCurrentIndex(0)
         self.background_scale_combo.currentIndexChanged.connect(self._on_background_scale_changed)
         self.background_scale_combo.setFixedWidth(100)
-        self.background_scale_combo.setStyleSheet("""
-            QComboBox { 
-                background-color: #ffffff; 
-                color: #000000; 
-                border: 1px solid #bdc3c7;
-                border-radius: 3px;
-                padding: 2px 5px;
-            }
-            QComboBox:hover {
-                border: 1px solid #3498db;
-            }
-            QComboBox::drop-down {
-                background-color: #ecf0f1;
-            }
-            QComboBox QAbstractItemView { 
-                background-color: #ffffff; 
-                color: #000000; 
-                selection-background-color: #3498db;
-                selection-color: #ffffff;
-                border: 1px solid #bdc3c7;
-            }
-        """)
         scale_color_layout.addWidget(self.background_scale_combo, alignment=Qt.AlignVCenter)
 
         scale_color_layout.addSpacing(15)
@@ -447,8 +412,6 @@ class ControlsManager:
         """Handle slider value change"""
         self.opacity_value_label.setText(f"{value}%")
         self.parent.on_opacity_text_changed(str(value))
-
-
     def _create_text_style_controls(self) -> QGroupBox:
         """Create text style controls"""
         style_group = QGroupBox("Text Style")
@@ -462,6 +425,7 @@ class ControlsManager:
         font_label = QLabel("Font:")
         font_row_layout.addWidget(font_label, alignment=Qt.AlignVCenter)
         self.font_combo = QFontComboBox()
+
         self.font_combo.setCurrentFont(self.text_style.font_family)
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
         font_row_layout.addWidget(self.font_combo, alignment=Qt.AlignVCenter)
@@ -576,9 +540,10 @@ class ControlsManager:
         self._update_gradient_color2_button()
         effects_row.addWidget(self.gradient_color2_btn, alignment=Qt.AlignVCenter)
         self.gradient_direction_combo = QComboBox()
-        self.gradient_direction_combo.addItem("V", "vertical")
-        self.gradient_direction_combo.addItem("H", "horizontal")
-        self.gradient_direction_combo.addItem("D", "diagonal")
+
+        self.gradient_direction_combo.addItem("Vertical", "vertical")
+        self.gradient_direction_combo.addItem("Horizontal", "horizontal")
+        self.gradient_direction_combo.addItem("Diagonal", "diagonal")
         self.gradient_direction_combo.setFixedWidth(100)
         self.gradient_direction_combo.currentIndexChanged.connect(
             lambda: self.parent.on_gradient_direction_changed(self.gradient_direction_combo.currentData()))
@@ -663,6 +628,7 @@ class ControlsManager:
         # Date format combo
         date_layout.addWidget(QLabel("Format:"), alignment=Qt.AlignVCenter)
         self.date_format_combo = QComboBox()
+
         self.date_format_combo.addItem("Default", "default")  # Tuesday 9 December
         self.date_format_combo.addItem("Short", "short")      # Tue Dec 9
         self.date_format_combo.addItem("Numeric", "numeric")  # 09/12
@@ -811,7 +777,7 @@ class ControlsManager:
             # Checkbox
             checkbox = QCheckBox(display_name)
             checkbox.setChecked(False)
-            checkbox.setStyleSheet(self._get_smart_checkbox_style())
+
             checkbox.toggled.connect(lambda checked, name=text_name: self.parent.on_text_toggled(name, checked))
             self.text_checkboxes[text_name] = checkbox
             text_row_layout.addWidget(checkbox, alignment=Qt.AlignVCenter)
@@ -856,6 +822,19 @@ class ControlsManager:
         
         overlay_layout.addWidget(bar_group)
         
+        # Circular Graph controls
+        arc_group = QGroupBox("Circular Graphs:")
+        arc_layout = QVBoxLayout(arc_group)
+        arc_layout.setContentsMargins(6, 6, 6, 6)
+        arc_layout.setSpacing(6)
+        
+        for i in range(1, 5):
+            arc_name = f"arc{i}"
+            arc_row = self._create_circular_graph_row(arc_name, i)
+            arc_layout.addLayout(arc_row)
+        
+        overlay_layout.addWidget(arc_group)
+        
         return overlay_group
 
     def _create_metric_row(self, row_label, display_name, metric_name):
@@ -871,7 +850,7 @@ class ControlsManager:
         # Checkbox (no text label - row_label already describes it)
         checkbox = QCheckBox()
         checkbox.setChecked(False)
-        checkbox.setStyleSheet(self._get_smart_checkbox_style())
+
         checkbox.toggled.connect(lambda checked, name=metric_name: self.parent.on_metric_toggled(name, checked))
         checkbox.setFixedWidth(20)
         self.metric_checkboxes[metric_name] = checkbox
@@ -907,6 +886,7 @@ class ControlsManager:
         pos_label.setFixedWidth(35)
         row.addWidget(pos_label, alignment=Qt.AlignVCenter)
         label_pos_combo = QComboBox()
+
         label_pos_combo.addItem("Left", "left")
         label_pos_combo.addItem("Right", "right")
         label_pos_combo.addItem("Above", "above")
@@ -939,6 +919,7 @@ class ControlsManager:
             unit_label.setFixedWidth(35)
             row.addWidget(unit_label, alignment=Qt.AlignVCenter)
             freq_format_combo = QComboBox()
+
             freq_format_combo.addItem("MHz", "mhz")
             freq_format_combo.addItem("GHz", "ghz")
             freq_format_combo.setCurrentIndex(0)
@@ -971,7 +952,7 @@ class ControlsManager:
         # Checkbox with text widget name
         checkbox = QCheckBox(display_name)
         checkbox.setChecked(False)
-        checkbox.setStyleSheet(self._get_smart_checkbox_style())
+
         checkbox.toggled.connect(lambda checked, name=text_name: self.parent.on_text_toggled(name, checked))
         checkbox.setFixedWidth(60)
         self.text_checkboxes[text_name] = checkbox
@@ -1015,7 +996,7 @@ class ControlsManager:
         # Enable checkbox
         checkbox = QCheckBox()
         checkbox.setChecked(False)
-        checkbox.setStyleSheet(self._get_smart_checkbox_style())
+
         checkbox.toggled.connect(lambda checked, name=bar_name: self.parent.on_bar_toggled(name, checked))
         checkbox.setFixedWidth(20)
         self.bar_checkboxes[bar_name] = checkbox
@@ -1026,6 +1007,7 @@ class ControlsManager:
         metric_label.setFixedWidth(45)
         row.addWidget(metric_label, alignment=Qt.AlignVCenter)
         metric_combo = QComboBox()
+
         metric_combo.addItems([
             "cpu_usage", "cpu_temperature", 
             "gpu_usage", "gpu_temperature"
@@ -1041,6 +1023,7 @@ class ControlsManager:
         orient_label.setFixedWidth(70)
         row.addWidget(orient_label, alignment=Qt.AlignVCenter)
         orient_combo = QComboBox()
+
         orient_combo.addItem("Horizontal", "horizontal")
         orient_combo.addItem("Vertical", "vertical")
         orient_combo.setFixedWidth(100)
@@ -1058,7 +1041,7 @@ class ControlsManager:
         width_spin = QSpinBox()
         width_spin.setRange(20, 300)
         width_spin.setValue(100)
-        width_spin.setFixedWidth(60)
+        width_spin.setFixedWidth(70)
         width_spin.valueChanged.connect(
             lambda val, name=bar_name: self.parent.on_bar_width_changed(name, val))
         self.bar_width_spins[bar_name] = width_spin
@@ -1071,7 +1054,7 @@ class ControlsManager:
         height_spin = QSpinBox()
         height_spin.setRange(5, 50)
         height_spin.setValue(16)
-        height_spin.setFixedWidth(60)
+        height_spin.setFixedWidth(70)
         height_spin.valueChanged.connect(
             lambda val, name=bar_name: self.parent.on_bar_height_changed(name, val))
         self.bar_height_spins[bar_name] = height_spin
@@ -1084,7 +1067,7 @@ class ControlsManager:
         radius_spin = QSpinBox()
         radius_spin.setRange(0, 20)
         radius_spin.setValue(0)
-        radius_spin.setFixedWidth(60)
+        radius_spin.setFixedWidth(70)
         radius_spin.valueChanged.connect(
             lambda val, name=bar_name: self.parent.on_bar_corner_radius_changed(name, val))
         self.bar_corner_radius_spins[bar_name] = radius_spin
@@ -1120,6 +1103,124 @@ class ControlsManager:
         row.addStretch()
         return row
 
+    def _create_circular_graph_row(self, arc_name: str, arc_num: int):
+        """Create a single-row layout for a circular graph widget with all controls inline"""
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.setContentsMargins(0, 2, 0, 2)
+        
+        # Arc label
+        label = QLabel(f"Arc {arc_num}:")
+        label.setFixedWidth(50)
+        row.addWidget(label, alignment=Qt.AlignVCenter)
+        
+        # Enable checkbox
+        checkbox = QCheckBox()
+        checkbox.setChecked(False)
+
+        checkbox.toggled.connect(lambda checked, name=arc_name: self.parent.on_arc_toggled(name, checked))
+        checkbox.setFixedWidth(20)
+        self.arc_checkboxes[arc_name] = checkbox
+        row.addWidget(checkbox, alignment=Qt.AlignVCenter)
+        
+        # Metric dropdown
+        metric_label = QLabel("Metric:")
+        metric_label.setFixedWidth(45)
+        row.addWidget(metric_label, alignment=Qt.AlignVCenter)
+        metric_combo = QComboBox()
+
+        metric_combo.addItems([
+            "cpu_usage", "cpu_temperature", 
+            "gpu_usage", "gpu_temperature"
+        ])
+        metric_combo.setFixedWidth(120)
+        metric_combo.currentTextChanged.connect(
+            lambda text, name=arc_name: self.parent.on_arc_metric_changed(name, text))
+        self.arc_metric_combos[arc_name] = metric_combo
+        row.addWidget(metric_combo, alignment=Qt.AlignVCenter)
+        
+        # Radius
+        radius_label = QLabel("Radius:")
+        radius_label.setFixedWidth(45)
+        row.addWidget(radius_label, alignment=Qt.AlignVCenter)
+        radius_spin = QSpinBox()
+        radius_spin.setRange(10, 100)
+        radius_spin.setValue(40)
+        radius_spin.setFixedWidth(70)
+        radius_spin.valueChanged.connect(
+            lambda val, name=arc_name: self.parent.on_arc_radius_changed(name, val))
+        self.arc_radius_spins[arc_name] = radius_spin
+        row.addWidget(radius_spin, alignment=Qt.AlignVCenter)
+        
+        # Thickness
+        thick_label = QLabel("Thick:")
+        thick_label.setFixedWidth(40)
+        row.addWidget(thick_label, alignment=Qt.AlignVCenter)
+        thick_spin = QSpinBox()
+        thick_spin.setRange(2, 30)
+        thick_spin.setValue(8)
+        thick_spin.setFixedWidth(70)
+        thick_spin.valueChanged.connect(
+            lambda val, name=arc_name: self.parent.on_arc_thickness_changed(name, val))
+        self.arc_thickness_spins[arc_name] = thick_spin
+        row.addWidget(thick_spin, alignment=Qt.AlignVCenter)
+        
+        # Start angle
+        start_label = QLabel("Start:")
+        start_label.setFixedWidth(35)
+        row.addWidget(start_label, alignment=Qt.AlignVCenter)
+        start_spin = QSpinBox()
+        start_spin.setRange(0, 359)
+        start_spin.setValue(135)
+        start_spin.setFixedWidth(70)
+        start_spin.valueChanged.connect(
+            lambda val, name=arc_name: self.parent.on_arc_start_angle_changed(name, val))
+        self.arc_start_angle_spins[arc_name] = start_spin
+        row.addWidget(start_spin, alignment=Qt.AlignVCenter)
+        
+        # Sweep angle
+        sweep_label = QLabel("Sweep:")
+        sweep_label.setFixedWidth(45)
+        row.addWidget(sweep_label, alignment=Qt.AlignVCenter)
+        sweep_spin = QSpinBox()
+        sweep_spin.setRange(1, 360)
+        sweep_spin.setValue(270)
+        sweep_spin.setFixedWidth(70)
+        sweep_spin.valueChanged.connect(
+            lambda val, name=arc_name: self.parent.on_arc_sweep_angle_changed(name, val))
+        self.arc_sweep_angle_spins[arc_name] = sweep_spin
+        row.addWidget(sweep_spin, alignment=Qt.AlignVCenter)
+        
+        # Fill color button
+        fill_btn = QPushButton()
+        fill_btn.setFixedWidth(60)
+        fill_btn.setStyleSheet("background-color: #00FF00; border: 1px solid #888; border-radius: 3px;")
+        fill_btn.setToolTip("Fill Color")
+        fill_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_fill_color_clicked(name))
+        self.arc_fill_color_btns[arc_name] = fill_btn
+        row.addWidget(fill_btn, alignment=Qt.AlignVCenter)
+        
+        # Background color button
+        bg_btn = QPushButton()
+        bg_btn.setFixedWidth(60)
+        bg_btn.setStyleSheet("background-color: #323232; border: 1px solid #888; border-radius: 3px;")
+        bg_btn.setToolTip("Background Color")
+        bg_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_bg_color_clicked(name))
+        self.arc_bg_color_btns[arc_name] = bg_btn
+        row.addWidget(bg_btn, alignment=Qt.AlignVCenter)
+        
+        # Border color button
+        border_btn = QPushButton()
+        border_btn.setFixedWidth(60)
+        border_btn.setStyleSheet("background-color: #FFFFFF; border: 1px solid #888; border-radius: 3px;")
+        border_btn.setToolTip("Border Color")
+        border_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_border_color_clicked(name))
+        self.arc_border_color_btns[arc_name] = border_btn
+        row.addWidget(border_btn, alignment=Qt.AlignVCenter)
+        
+        row.addStretch()
+        return row
+
     def create_action_buttons(self) -> QWidget:
         """Create action buttons widget (to be placed outside scroll area)"""
         return self._create_action_controls()
@@ -1150,20 +1251,10 @@ class ControlsManager:
         
         save_config_btn = QPushButton("Save")
         save_config_btn.clicked.connect(self.parent.generate_config_yaml)
-        save_config_btn.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: white; font-weight: bold; 
-                         padding: 8px; border-radius: 6px; }
-            QPushButton:hover { background-color: #219a52; }
-        """)
         save_config_btn.setFixedSize(100, 35)
 
         preview_config_btn = QPushButton("Apply")
         preview_config_btn.clicked.connect(self.parent.generate_preview)
-        preview_config_btn.setStyleSheet("""
-                QPushButton { background-color: #3498db; color: white; font-weight: bold; 
-                             padding: 8px; border-radius: 6px; }
-                QPushButton:hover { background-color: #2980b9; }
-            """)
         preview_config_btn.setFixedSize(100, 35)
 
         actions_layout.addWidget(save_config_btn, alignment=Qt.AlignVCenter)
@@ -1177,56 +1268,3 @@ class ControlsManager:
             QPushButton {{ background-color: {self.text_style.color.name()}; border: 1px solid #bdc3c7; 
                           border-radius: 6px; padding: 5px; color: {'#2c3e50' if self.text_style.color.lightness() > 128 else '#ecf0f1'}; }}
         """)
-
-    def _get_smart_checkbox_style(self):
-        """Style intelligent qui détecte automatiquement le thème"""
-        # Détecter si on est en mode sombre
-        palette = QApplication.instance().palette()
-        is_dark = palette.color(QPalette.ColorRole.Window).lightness() < 128
-
-        if is_dark:
-            return """
-            QCheckBox {
-                color: #ffffff;
-                font-size: 12px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #666666;
-                border-radius: 3px;
-                background-color: #2b2b2b;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #0078d4;
-                background-color: #3c3c3c;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
-            }
-            """
-        else:
-            return """
-            QCheckBox {
-                color: #000000;
-                font-size: 12px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #999999;
-                border-radius: 3px;
-                background-color: #ffffff;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #0078d4;
-                background-color: #f0f0f0;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
-            }
-            """

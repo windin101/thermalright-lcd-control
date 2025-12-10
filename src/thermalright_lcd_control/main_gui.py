@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from thermalright_lcd_control.gui.main_window import MediaPreviewUI
 from thermalright_lcd_control.gui.utils.usb_detector import USBDeviceDetector
+from thermalright_lcd_control.gui.styles import setup_application_palette
 from thermalright_lcd_control.common.supported_devices import SUPPORTED_DEVICES
 
 def show_error_and_exit(message: str):
@@ -39,6 +40,14 @@ def main(config_file=None):
         config_file (str, optional): Path to the GUI configuration file
     """
     app = QApplication(sys.argv)
+    
+    # Use Fusion style for consistent cross-platform appearance
+    # This makes widgets work more reliably on Linux
+    app.setStyle("Fusion")
+    
+    # Set up application palette for proper colors
+    setup_application_palette(app)
+    
     app.setApplicationName("thermalright-lcd-control")
     app.setApplicationDisplayName("Thermalright LCD Control")
     app.setDesktopFileName("thermalright-lcd-control.desktop")

@@ -28,18 +28,7 @@ class ThumbnailWidget(QWidget):
         self.audio_output = None
         self.is_video = False
 
-        self.setFixedSize(120, 100)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #ffffff;
-                border: 1px solid #dcdde1;
-                border-radius: 8px;
-            }
-            QWidget:hover {
-                background-color: #f5f6fa;
-                border: 2px solid #3498db;
-            }
-        """)
+        self.setFixedSize(270, 210)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -47,35 +36,20 @@ class ThumbnailWidget(QWidget):
 
         # Container for thumbnail content
         self.content_container = QWidget()
-        self.content_container.setFixedSize(110, 70)
+        self.content_container.setFixedSize(260, 160)
 
         # Stack widget to switch between label and video
         self.content_stack = QStackedWidget(self.content_container)
-        self.content_stack.setGeometry(0, 0, 110, 70)
+        self.content_stack.setGeometry(0, 0, 260, 160)
 
         # Label for images and gifs
         self.thumb_label = QLabel()
-        self.thumb_label.setFixedSize(110, 70)
+        self.thumb_label.setFixedSize(260, 160)
         self.thumb_label.setAlignment(Qt.AlignCenter)
-        self.thumb_label.setStyleSheet("""
-            QLabel {
-                background-color: #f5f6fa;
-                border: 1px solid #dcdde1;
-                border-radius: 4px;
-                color: #2c3e50;
-            }
-        """)
 
         # Video widget for videos
         self.video_widget = QVideoWidget()
-        self.video_widget.setFixedSize(110, 70)
-        self.video_widget.setStyleSheet("""
-            QVideoWidget {
-                background-color: #f5f6fa;
-                border: 1px solid #dcdde1;
-                border-radius: 4px;
-            }
-        """)
+        self.video_widget.setFixedSize(260, 160)
 
         # Add to stack
         self.content_stack.addWidget(self.thumb_label)   # Index 0
@@ -86,14 +60,6 @@ class ThumbnailWidget(QWidget):
         self.name_label = QLabel(file_name)
         self.name_label.setAlignment(Qt.AlignCenter)
         self.name_label.setWordWrap(True)
-        self.name_label.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                border: none;
-                font-size: 10px;
-                color: #2c3e50;
-            }
-        """)
 
         layout.addWidget(self.content_container)
         layout.addWidget(self.name_label)
@@ -128,7 +94,7 @@ class ThumbnailWidget(QWidget):
 
         pixmap = QPixmap(self.file_path)
         if not pixmap.isNull():
-            scaled = pixmap.scaled(110, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = pixmap.scaled(260, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.thumb_label.setPixmap(scaled)
         else:
             self.thumb_label.setText("Image\nUnavailable")
@@ -137,7 +103,7 @@ class ThumbnailWidget(QWidget):
         """Set a pixmap directly as the thumbnail"""
         self.content_stack.setCurrentIndex(0)
         if pixmap and not pixmap.isNull():
-            scaled = pixmap.scaled(110, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = pixmap.scaled(260, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.thumb_label.setPixmap(scaled)
         else:
             self.thumb_label.setText("Preview\nUnavailable")
@@ -149,7 +115,7 @@ class ThumbnailWidget(QWidget):
         try:
             movie = QMovie(self.file_path)
             if movie.isValid():
-                movie.setScaledSize(QSize(110, 70))
+                movie.setScaledSize(QSize(260, 160))
                 self.thumb_label.setMovie(movie)
                 movie.start()
             else:
@@ -190,7 +156,7 @@ class ThumbnailWidget(QWidget):
 
                     # Convert to QPixmap and scale
                     pixmap = QPixmap.fromImage(q_image)
-                    scaled = pixmap.scaled(110, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    scaled = pixmap.scaled(260, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.thumb_label.setPixmap(scaled)
                 else:
                     raise Exception("Could not read frame")

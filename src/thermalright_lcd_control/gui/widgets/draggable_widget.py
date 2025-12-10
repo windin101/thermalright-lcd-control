@@ -2,15 +2,34 @@
 # Copyright © 2025 Rejeb Ben Rejeb
 
 """Main window for Media Preview application"""
+import math
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal
-from PySide6.QtGui import QMouseEvent, QColor, QPixmap, QPainter, QPen
+from PySide6.QtGui import QMouseEvent, QColor, QPixmap, QPainter, QPen, QConicalGradient
 from PySide6.QtWidgets import QLabel, QWidget
 
 from thermalright_lcd_control.device_controller.display.utils import _get_default_font_name
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
+
+# Shared metrics instances for widget value updates
+_cpu_metrics_instance = None
+_gpu_metrics_instance = None
+
+def _get_cpu_metrics():
+    """Get or create shared CpuMetrics instance"""
+    global _cpu_metrics_instance
+    if _cpu_metrics_instance is None:
+        _cpu_metrics_instance = CpuMetrics()
+    return _cpu_metrics_instance
+
+def _get_gpu_metrics():
+    """Get or create shared GpuMetrics instance"""
+    global _gpu_metrics_instance
+    if _gpu_metrics_instance is None:
+        _gpu_metrics_instance = GpuMetrics()
+    return _gpu_metrics_instance
 
 
 class GridOverlayWidget(QWidget):
@@ -1004,15 +1023,17 @@ class BarGraphWidget(QLabel):
         # Get value from metrics
         try:
             if self._metric_name.startswith("cpu"):
+                cpu = _get_cpu_metrics()
                 if self._metric_name == "cpu_usage":
-                    self._current_value = CpuMetrics.get_cpu_usage()
+                    self._current_value = cpu.get_usage_percentage() or 0
                 elif self._metric_name == "cpu_temperature":
-                    self._current_value = CpuMetrics.get_cpu_temperature()
+                    self._current_value = cpu.get_temperature() or 0
             elif self._metric_name.startswith("gpu"):
+                gpu = _get_gpu_metrics()
                 if self._metric_name == "gpu_usage":
-                    self._current_value = GpuMetrics.get_gpu_usage()
+                    self._current_value = gpu.get_usage_percentage() or 0
                 elif self._metric_name == "gpu_temperature":
-                    self._current_value = GpuMetrics.get_gpu_temperature()
+                    self._current_value = gpu.get_temperature() or 0
         except:
             pass
         
@@ -1249,3 +1270,327 @@ class BarGraphWidget(QLabel):
         border_padding = 4
         pos = self.pos()
         return (pos.x() + border_padding, pos.y() + border_padding)
+
+
+class CircularGraphWidget(QLabel):
+    """Draggable circular/arc graph widget for displaying metrics"""
+    
+    positionChanged = Signal(QPoint)
+    
+    def __init__(self, parent=None, widget_name="arc1"):
+        super().__init__(parent)
+        self.name = widget_name
+        self.enabled = False
+        self._dragging = False
+        self._is_hovered = False
+        
+        # Enable mouse tracking and transparent background for drag functionality
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setCursor(Qt.OpenHandCursor)
+        self._drag_start = QPoint()
+        
+        # Arc properties
+        self._metric_name = "cpu_usage"
+        self._radius = 40
+        self._thickness = 8
+        self._start_angle = 135  # Degrees (0 = 3 o'clock, counter-clockwise)
+        self._sweep_angle = 270  # Degrees
+        
+        # Colors
+        self._fill_color = QColor(0, 255, 0, 255)
+        self._background_color = QColor(50, 50, 50, 255)
+        self._border_color = QColor(255, 255, 255, 255)
+        
+        # Border options
+        self._show_border = False
+        self._border_width = 1
+        
+        # Value range
+        self._min_value = 0.0
+        self._max_value = 100.0
+        
+        # Current value for display
+        self._current_value = 50.0
+        
+        # Timer for updating value
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self._update_value)
+        self.update_timer.start(1000)
+        
+        self._set_initial_position()
+        self.update_display()
+    
+    def _set_initial_position(self):
+        """Set initial position based on widget name."""
+        border_padding = 4
+        arc_positions = {
+            "arc1": (60, 60),
+            "arc2": (160, 60),
+            "arc3": (60, 160),
+            "arc4": (160, 160)
+        }
+        if self.name in arc_positions:
+            x, y = arc_positions[self.name]
+            # Position is center of arc, so offset by radius + padding
+            self.move(x - self._radius - border_padding, y - self._radius - border_padding)
+    
+    def _update_value(self):
+        """Update the current value from metrics"""
+        if not self.enabled:
+            return
+        
+        try:
+            if self._metric_name.startswith("cpu"):
+                cpu = _get_cpu_metrics()
+                if self._metric_name == "cpu_usage":
+                    self._current_value = cpu.get_usage_percentage() or 0
+                elif self._metric_name == "cpu_temperature":
+                    self._current_value = cpu.get_temperature() or 0
+            elif self._metric_name.startswith("gpu"):
+                gpu = _get_gpu_metrics()
+                if self._metric_name == "gpu_usage":
+                    self._current_value = gpu.get_usage_percentage() or 0
+                elif self._metric_name == "gpu_temperature":
+                    self._current_value = gpu.get_temperature() or 0
+        except:
+            pass
+        
+        self.update_display()
+    
+    def set_enabled(self, enabled: bool):
+        """Enable or disable the widget"""
+        self.enabled = enabled
+        self.update_display()
+    
+    def update_display(self):
+        """Update the visual display of the arc"""
+        if not self.enabled:
+            self.hide()
+            return
+        
+        # Add padding for the selection border
+        border_padding = 4
+        diameter = self._radius * 2
+        total_size = diameter + self._thickness + border_padding * 2
+        
+        # Create pixmap with padding for border
+        pixmap = QPixmap(total_size, total_size)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Draw selection border if dragging or hovered
+        if self._dragging:
+            painter.setBrush(QColor(231, 76, 60, 50))
+            pen = QPen(QColor(231, 76, 60, 255))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            painter.drawRect(1, 1, total_size - 2, total_size - 2)
+        elif self._is_hovered:
+            painter.setBrush(QColor(52, 152, 219, 40))
+            pen = QPen(QColor(52, 152, 219, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(1, 1, total_size - 2, total_size - 2)
+        
+        # Calculate center of arc within pixmap
+        center_x = total_size // 2
+        center_y = total_size // 2
+        
+        # Calculate bounding rect for arc
+        arc_rect_size = diameter
+        arc_left = center_x - self._radius
+        arc_top = center_y - self._radius
+        
+        # Calculate fill amount
+        normalized = (self._current_value - self._min_value) / max(1, self._max_value - self._min_value)
+        normalized = max(0.0, min(1.0, normalized))
+        
+        # Draw background arc
+        pen = QPen(self._background_color)
+        pen.setWidth(self._thickness)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        
+        # Qt uses 1/16th of a degree, and angles are counter-clockwise from 3 o'clock
+        start_angle_qt = int(self._start_angle * 16)
+        sweep_angle_qt = int(self._sweep_angle * 16)
+        painter.drawArc(arc_left, arc_top, arc_rect_size, arc_rect_size, start_angle_qt, sweep_angle_qt)
+        
+        # Draw filled arc
+        if normalized > 0:
+            pen = QPen(self._fill_color)
+            pen.setWidth(self._thickness)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            
+            filled_sweep = int(self._sweep_angle * normalized)
+            filled_sweep_qt = int(filled_sweep * 16)
+            painter.drawArc(arc_left, arc_top, arc_rect_size, arc_rect_size, start_angle_qt, filled_sweep_qt)
+        
+        # Draw border if enabled
+        if self._show_border and self._border_width > 0:
+            pen = QPen(self._border_color)
+            pen.setWidth(self._border_width)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            
+            # Draw outer border arc
+            outer_offset = self._thickness // 2 + self._border_width // 2
+            outer_rect_size = diameter + self._thickness
+            outer_left = center_x - self._radius - self._thickness // 2
+            outer_top = center_y - self._radius - self._thickness // 2
+            painter.drawArc(outer_left, outer_top, outer_rect_size, outer_rect_size, start_angle_qt, sweep_angle_qt)
+            
+            # Draw inner border arc
+            inner_rect_size = diameter - self._thickness
+            inner_left = center_x - self._radius + self._thickness // 2
+            inner_top = center_y - self._radius + self._thickness // 2
+            painter.drawArc(inner_left, inner_top, inner_rect_size, inner_rect_size, start_angle_qt, sweep_angle_qt)
+        
+        painter.end()
+        
+        self.setPixmap(pixmap)
+        self.setFixedSize(total_size, total_size)
+        self.show()
+    
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self.update_display()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        self.update_display()
+        super().leaveEvent(event)
+    
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self.enabled:
+            self._dragging = True
+            self._drag_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            self.update_display()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._dragging and self.enabled:
+            new_pos = self.pos() + event.pos() - self._drag_start
+            if self.parent():
+                parent_rect = self.parent().rect()
+                widget_rect = self.rect()
+                new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - widget_rect.width())))
+                new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
+            self.move(new_pos)
+            self.positionChanged.emit(new_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            self.setCursor(Qt.OpenHandCursor)
+            self.update_display()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    # Getters and setters
+    def get_metric_name(self) -> str:
+        return self._metric_name
+    
+    def set_metric_name(self, name: str):
+        self._metric_name = name
+        self._update_value()
+    
+    def get_radius(self) -> int:
+        return self._radius
+    
+    def set_radius(self, radius: int):
+        self._radius = max(10, radius)
+        self.update_display()
+    
+    def get_thickness(self) -> int:
+        return self._thickness
+    
+    def set_thickness(self, thickness: int):
+        self._thickness = max(2, thickness)
+        self.update_display()
+    
+    def get_start_angle(self) -> int:
+        return self._start_angle
+    
+    def set_start_angle(self, angle: int):
+        self._start_angle = angle % 360
+        self.update_display()
+    
+    def get_sweep_angle(self) -> int:
+        return self._sweep_angle
+    
+    def set_sweep_angle(self, angle: int):
+        self._sweep_angle = max(1, min(360, angle))
+        self.update_display()
+    
+    def get_fill_color(self) -> QColor:
+        return self._fill_color
+    
+    def set_fill_color(self, color: QColor):
+        self._fill_color = color
+        self.update_display()
+    
+    def get_background_color(self) -> QColor:
+        return self._background_color
+    
+    def set_background_color(self, color: QColor):
+        self._background_color = color
+        self.update_display()
+    
+    def get_border_color(self) -> QColor:
+        return self._border_color
+    
+    def set_border_color(self, color: QColor):
+        self._border_color = color
+        self.update_display()
+    
+    def get_show_border(self) -> bool:
+        return self._show_border
+    
+    def set_show_border(self, show: bool):
+        self._show_border = show
+        self.update_display()
+    
+    def get_border_width(self) -> int:
+        return self._border_width
+    
+    def set_border_width(self, width: int):
+        self._border_width = max(1, width)
+        self.update_display()
+    
+    def get_min_value(self) -> float:
+        return self._min_value
+    
+    def set_min_value(self, value: float):
+        self._min_value = value
+        self.update_display()
+    
+    def get_max_value(self) -> float:
+        return self._max_value
+    
+    def set_max_value(self, value: float):
+        self._max_value = value
+        self.update_display()
+    
+    def get_position(self) -> tuple:
+        """Get center position adjusted for border padding and radius"""
+        border_padding = 4
+        pos = self.pos()
+        # Return the center of the arc
+        center_x = pos.x() + border_padding + self._radius + self._thickness // 2
+        center_y = pos.y() + border_padding + self._radius + self._thickness // 2
+        return (center_x, center_y)

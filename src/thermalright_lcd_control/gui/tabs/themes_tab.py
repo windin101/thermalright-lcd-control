@@ -51,15 +51,10 @@ class ThemesTab(QWidget):
         # Header with buttons (matching MediaTab style)
         header_layout = QHBoxLayout()
 
-        # New Theme button (green like Save button)
+        # New Theme button
         new_theme_btn = QPushButton("+ New Theme")
         new_theme_btn.clicked.connect(self.on_new_theme_clicked)
         new_theme_btn.setMaximumWidth(150)
-        new_theme_btn.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: white; font-weight: bold; 
-                         padding: 8px; border-radius: 6px; }
-            QPushButton:hover { background-color: #219a52; }
-        """)
 
         # Open Folder button
         open_folder_btn = QPushButton("Open Folder")
@@ -90,7 +85,7 @@ class ThemesTab(QWidget):
         self.thumbnails_layout.setContentsMargins(10, 10, 10, 10)
         
         # Set column stretch to prevent horizontal expansion
-        for i in range(4):
+        for i in range(3):
             self.thumbnails_layout.setColumnStretch(i, 0)
 
         scroll_area.setWidget(self.thumbnails_widget)
@@ -122,7 +117,7 @@ class ThemesTab(QWidget):
 
         # Create thumbnails
         row, col = 0, 0
-        max_cols = 4  # Number of thumbnails per row (reduced for better fit)
+        max_cols = 3  # Number of thumbnails per row
 
         for yaml_file in yaml_files:
             try:
@@ -144,24 +139,13 @@ class ThemesTab(QWidget):
                     if thumbnail_path and os.path.exists(thumbnail_path):
                         thumbnail_widget = ThumbnailWidget(thumbnail_path, theme_name)
 
-                # Add special styling for theme thumbnails
-                thumbnail_widget.setStyleSheet(thumbnail_widget.styleSheet() + """
-                    QWidget {
-                        border: 2px solid #3498db;
-                    }
-                    QWidget:hover {
-                        border: 3px solid #2980b9;
-                        background-color: #ebf5fb;
-                    }
-                """)
-
                 # Create a container using absolute positioning (no layout)
                 container = QWidget()
-                container.setFixedSize(120, 100)
+                container.setFixedSize(270, 210)
                 
                 # Position thumbnail inside container
                 thumbnail_widget.setParent(container)
-                thumbnail_widget.setGeometry(0, 0, 120, 100)
+                thumbnail_widget.setGeometry(0, 0, 270, 210)
                 thumbnail_widget.clicked.connect(
                     lambda path, theme_path=str(yaml_file): self.on_theme_selected(theme_path))
                 
@@ -170,7 +154,7 @@ class ThemesTab(QWidget):
                 delete_btn.setFixedSize(20, 20)
                 delete_btn.setMinimumSize(20, 20)
                 delete_btn.setMaximumSize(20, 20)
-                delete_btn.move(96, 2)
+                delete_btn.move(246, 2)
                 delete_btn.setToolTip(f"Delete {theme_name}")
                 delete_btn.setStyleSheet("""
                     QPushButton {

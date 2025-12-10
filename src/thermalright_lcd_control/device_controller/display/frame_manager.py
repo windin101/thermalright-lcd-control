@@ -49,7 +49,8 @@ class FrameManager:
         # Check if we need metrics (for metrics_configs or bar_configs)
         has_metrics = len(config.metrics_configs) != 0 if config.metrics_configs else False
         has_bars = len(config.bar_configs) != 0 if config.bar_configs else False
-        if has_metrics or has_bars:
+        has_circular = len(config.circular_configs) != 0 if config.circular_configs else False
+        if has_metrics or has_bars or has_circular:
             # Initialize metrics collectors
             self.cpu_metrics = CpuMetrics()
             self.gpu_metrics = GpuMetrics()

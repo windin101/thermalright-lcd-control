@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 
 from PIL import ImageDraw, ImageFont, ImageFilter, Image
 
-from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig
+from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig, CircularGraphConfig
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 # Import font manager from current package
@@ -478,3 +478,74 @@ class TextRenderer:
         draw.line([x + radius, y + h, x + w - radius, y + h], fill=outline_color, width=width)  # Bottom
         draw.line([x, y + radius, x, y + h - radius], fill=outline_color, width=width)  # Left
         draw.line([x + w, y + radius, x + w, y + h - radius], fill=outline_color, width=width)  # Right
+
+    def render_circular_graphs(self, draw: ImageDraw.Draw, image: Image.Image,
+                               metrics: Optional[Dict[str, Any]], configs: List[CircularGraphConfig]):
+        """Render circular/arc graphs for metrics"""
+        if not metrics or not configs:
+            return
+
+        for config in configs:
+            if not config.enabled:
+                continue
+
+            # Get metric value
+            value = metrics.get(config.metric_name)
+            if value is None:
+                continue
+
+            # Normalize value to 0-1 range
+            try:
+                normalized = (float(value) - config.min_value) / (config.max_value - config.min_value)
+                normalized = max(0.0, min(1.0, normalized))  # Clamp to 0-1
+            except (ValueError, ZeroDivisionError):
+                normalized = 0.0
+
+            cx, cy = config.position  # Center of arc
+            radius = config.radius
+            thickness = config.thickness
+            
+            # Calculate bounding box for the arc
+            # PIL's arc uses bounding box of the ellipse
+            bbox = [
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius
+            ]
+            
+            # Qt uses counter-clockwise angles (positive = CCW from 3 o'clock)
+            # PIL uses clockwise angles (because y increases downward in images)
+            # To match Qt: negate the angles for PIL
+            # PIL start should be at -start_angle, and we sweep in negative direction
+            pil_start = -config.start_angle
+            pil_end = -(config.start_angle + config.sweep_angle)
+            
+            # Draw background arc (full sweep)
+            draw.arc(bbox, pil_end, pil_start, fill=config.background_color, width=thickness)
+            
+            # Draw filled arc (proportional to value)
+            if normalized > 0:
+                filled_sweep = config.sweep_angle * normalized
+                pil_filled_end = -(config.start_angle + filled_sweep)
+                draw.arc(bbox, pil_filled_end, pil_start, fill=config.fill_color, width=thickness)
+            
+            # Draw border arc if enabled
+            if config.show_border:
+                border_width = config.border_width
+                # Draw outer border arc
+                outer_bbox = [
+                    cx - radius - thickness // 2 - border_width,
+                    cy - radius - thickness // 2 - border_width,
+                    cx + radius + thickness // 2 + border_width,
+                    cy + radius + thickness // 2 + border_width
+                ]
+                draw.arc(outer_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+                # Draw inner border arc
+                inner_bbox = [
+                    cx - radius + thickness // 2 + border_width,
+                    cy - radius + thickness // 2 + border_width,
+                    cx + radius - thickness // 2 - border_width,
+                    cy + radius - thickness // 2 - border_width
+                ]
+                draw.arc(inner_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)

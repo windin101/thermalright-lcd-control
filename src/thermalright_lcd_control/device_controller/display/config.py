@@ -142,6 +142,32 @@ class BarGraphConfig:
 
 
 @dataclass
+class CircularGraphConfig:
+    """Configuration for circular/arc graph display"""
+    metric_name: str  # Which metric to display (cpu_usage, gpu_temp, etc.)
+    position: Tuple[int, int] = (0, 0)  # (x, y) - center of the arc
+    radius: int = 40  # Radius in pixels
+    thickness: int = 8  # Arc thickness in pixels
+    start_angle: int = 135  # Start angle in degrees (0 = right, 90 = bottom)
+    sweep_angle: int = 270  # Sweep angle in degrees (how much arc spans)
+    
+    # Colors (themeable)
+    fill_color: Tuple[int, int, int, int] = (0, 255, 0, 255)  # Green fill
+    background_color: Tuple[int, int, int, int] = (50, 50, 50, 255)  # Dark gray
+    border_color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # White border
+    
+    # Style options
+    show_border: bool = False
+    border_width: int = 1
+    
+    # Value range for normalization
+    min_value: float = 0.0
+    max_value: float = 100.0
+    
+    enabled: bool = True
+
+
+@dataclass
 class DisplayConfig:
     """Complete display configuration"""
     # Background (required)
@@ -189,6 +215,9 @@ class DisplayConfig:
 
     # Bar graph configuration
     bar_configs: List['BarGraphConfig'] = None
+
+    # Circular graph configuration
+    circular_configs: List['CircularGraphConfig'] = None
 
     # LCD refresh interval in seconds (how often stats update)
     refresh_interval: float = 1.0

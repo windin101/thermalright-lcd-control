@@ -108,6 +108,10 @@ class DisplayGenerator:
         if self.config.bar_configs:
             self.text_renderer.render_bar_graphs(draw, result, metrics, self.config.bar_configs)
 
+        # Draw circular graphs
+        if self.config.circular_configs:
+            self.text_renderer.render_circular_graphs(draw, result, metrics, self.config.circular_configs)
+
         convert = result.convert('RGB')
 
         # Apply rotation if configured and requested

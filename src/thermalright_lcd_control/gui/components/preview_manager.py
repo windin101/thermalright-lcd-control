@@ -11,7 +11,7 @@ from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import QLabel
 
 from thermalright_lcd_control.device_controller.display.config import (
-    DisplayConfig, BackgroundType, DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig
+    DisplayConfig, BackgroundType, DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig, CircularGraphConfig
 )
 from thermalright_lcd_control.device_controller.display.generator import DisplayGenerator
 
@@ -50,6 +50,7 @@ class PreviewManager:
         self.metrics_configs: List[MetricConfig] = []
         self.text_configs: List[TextConfig] = []
         self.bar_configs: List[BarGraphConfig] = []
+        self.circular_configs: List[CircularGraphConfig] = []
 
         # Components
         self.display_generator = None
@@ -143,6 +144,7 @@ class PreviewManager:
                 metrics_configs=self.metrics_configs if self.metrics_configs else [],
                 text_configs=self.text_configs if hasattr(self, 'text_configs') and self.text_configs else [],
                 bar_configs=self.bar_configs if hasattr(self, 'bar_configs') and self.bar_configs else [],
+                circular_configs=self.circular_configs if hasattr(self, 'circular_configs') and self.circular_configs else [],
                 # Text effects from text_style
                 shadow_enabled=self.text_style.shadow_enabled,
                 shadow_color=qcolor_to_rgba(self.text_style.shadow_color),
@@ -343,6 +345,7 @@ class PreviewManager:
                               metrics_configs: Optional[List[MetricConfig]] = None,
                               text_configs: Optional[List[TextConfig]] = None,
                               bar_configs: Optional[List[BarGraphConfig]] = None,
+                              circular_configs: Optional[List[CircularGraphConfig]] = None,
                               force_update: bool = True):
         """Update widget configs and refresh the preview.
         
@@ -352,6 +355,7 @@ class PreviewManager:
             metrics_configs: List of metric configurations (empty list means all disabled)
             text_configs: List of text configurations
             bar_configs: List of bar graph configurations
+            circular_configs: List of circular graph configurations
             force_update: If True, always update configs even if None (for disabling widgets)
         """
         # Always update configs - None means widget is disabled
@@ -365,6 +369,8 @@ class PreviewManager:
             self.text_configs = text_configs if text_configs else []
         if force_update or bar_configs is not None:
             self.bar_configs = bar_configs if bar_configs else []
+        if force_update or circular_configs is not None:
+            self.circular_configs = circular_configs if circular_configs else []
         
         # Update configs in existing generator
         if self.display_generator and self.display_generator.config:
@@ -373,6 +379,7 @@ class PreviewManager:
             self.display_generator.config.metrics_configs = self.metrics_configs
             self.display_generator.config.text_configs = self.text_configs
             self.display_generator.config.bar_configs = self.bar_configs
+            self.display_generator.config.circular_configs = self.circular_configs
             self.update_preview_frame()
         else:
             self.create_display_generator()

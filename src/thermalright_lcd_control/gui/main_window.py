@@ -14,11 +14,10 @@ from thermalright_lcd_control.gui.tabs.media_tab import MediaTab
 from thermalright_lcd_control.gui.tabs.themes_tab import ThemesTab
 from thermalright_lcd_control.gui.utils.config_loader import load_config
 from thermalright_lcd_control.gui.widgets.draggable_widget import *
-from thermalright_lcd_control.gui.styles import MODERN_STYLESHEET
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
-from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig
+from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig, CircularGraphConfig
 
 
 class MediaPreviewUI(QMainWindow):
@@ -62,6 +61,7 @@ class MediaPreviewUI(QMainWindow):
         self.metric_widgets = {}
         self.text_widgets = {}  # Free text widgets
         self.bar_widgets = {}   # Bar graph widgets
+        self.arc_widgets = {}   # Circular graph widgets
         
         # Track currently loaded theme for save/update
         self.current_theme_path = None
@@ -78,8 +78,7 @@ class MediaPreviewUI(QMainWindow):
 
     def setup_window(self):
         """Configure window size and properties"""
-        # Apply modern stylesheet
-        self.setStyleSheet(MODERN_STYLESHEET)
+        # No stylesheet - using Fusion style + palette set in main_gui.py
         
         window_config = self.config.get('window', {})
         default_width = window_config.get('default_width', 1200)
@@ -126,8 +125,8 @@ class MediaPreviewUI(QMainWindow):
 
         # Right side (tabs)
         right_widget = QWidget()
-        right_widget.setMinimumWidth(400)
-        right_widget.setMaximumWidth(550)
+        right_widget.setMinimumWidth(890)
+        right_widget.setMaximumWidth(950)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         self.setup_tabs_area(right_layout)
@@ -232,6 +231,15 @@ class MediaPreviewUI(QMainWindow):
             widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
             self.bar_widgets[widget_name] = widget
 
+        # Circular graph widgets
+        self.arc_widgets = {}
+        for i in range(1, 5):
+            widget_name = f"arc{i}"
+            widget = CircularGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+            widget.set_enabled(False)
+            widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+            self.arc_widgets[widget_name] = widget
+
         # Ensure overlay widgets are above the foreground drag handle
         self._raise_overlay_widgets()
 
@@ -255,6 +263,9 @@ class MediaPreviewUI(QMainWindow):
             if widget:
                 widget.raise_()
         for widget in self.bar_widgets.values():
+            if widget:
+                widget.raise_()
+        for widget in self.arc_widgets.values():
             if widget:
                 widget.raise_()
 
@@ -439,8 +450,21 @@ class MediaPreviewUI(QMainWindow):
             if custom_texts_config:
                 self.apply_custom_texts_config(custom_texts_config)
 
+            # Apply bar graph configurations
+            bar_graphs_config = display_config.get('bar_graphs', [])
+            if bar_graphs_config:
+                self.apply_bar_graphs_config(bar_graphs_config)
+
+            # Apply circular graph configurations
+            circular_graphs_config = display_config.get('circular_graphs', [])
+            if circular_graphs_config:
+                self.apply_circular_graphs_config(circular_graphs_config)
+
             # Update controls to reflect current widget states
             self.update_controls_from_widgets()
+
+            # Update preview manager with all widget configs for PIL rendering
+            self.update_preview_widget_configs()
 
             self.logger.debug(f"Theme loaded: {Path(theme_path).name}")
 
@@ -739,6 +763,178 @@ class MediaPreviewUI(QMainWindow):
 
         except Exception as e:
             self.logger.error(f"Error applying custom texts config: {e}")
+
+    def apply_bar_graphs_config(self, bar_configs):
+        """Apply configurations to bar graph widgets"""
+        try:
+            from PySide6.QtGui import QColor
+            
+            # First disable all bar widgets
+            for bar_widget in self.bar_widgets.values():
+                bar_widget.set_enabled(False)
+
+            # Apply configuration for each bar widget
+            for bar_config in bar_configs:
+                bar_name = bar_config.get('name')
+                if bar_name not in self.bar_widgets:
+                    continue
+
+                widget = self.bar_widgets[bar_name]
+
+                # Apply enabled state
+                enabled = bar_config.get('enabled', False)
+                widget.set_enabled(enabled)
+
+                # Apply position (convert from device to preview coordinates)
+                position = bar_config.get('position', {})
+                if position:
+                    x = int(position.get('x', 0) * self.preview_scale)
+                    y = int(position.get('y', 0) * self.preview_scale)
+                    # Account for border padding in widget
+                    border_padding = 4
+                    widget.move(x - border_padding, y - border_padding)
+
+                # Apply metric
+                metric_name = bar_config.get('metric_name', 'cpu_usage')
+                widget.set_metric_name(metric_name)
+
+                # Apply dimensions
+                widget.set_width(bar_config.get('width', 100))
+                widget.set_height(bar_config.get('height', 16))
+                widget.set_orientation(bar_config.get('orientation', 'horizontal'))
+                widget.set_corner_radius(bar_config.get('corner_radius', 0))
+
+                # Apply colors (use hex_to_qcolor to properly parse RRGGBBAA format)
+                fill_color = bar_config.get('fill_color', '#00FF00FF')
+                bg_color = bar_config.get('background_color', '#323232FF')
+                border_color = bar_config.get('border_color', '#FFFFFFFF')
+                widget.set_fill_color(self.hex_to_qcolor(fill_color) or QColor(0, 255, 0))
+                widget.set_background_color(self.hex_to_qcolor(bg_color) or QColor(50, 50, 50))
+                widget.set_border_color(self.hex_to_qcolor(border_color) or QColor(255, 255, 255))
+
+                # Update controls
+                if self.controls_manager:
+                    if bar_name in self.controls_manager.bar_checkboxes:
+                        self.controls_manager.bar_checkboxes[bar_name].setChecked(enabled)
+                    if bar_name in self.controls_manager.bar_metric_combos:
+                        idx = self.controls_manager.bar_metric_combos[bar_name].findText(metric_name)
+                        if idx >= 0:
+                            self.controls_manager.bar_metric_combos[bar_name].setCurrentIndex(idx)
+                    if bar_name in self.controls_manager.bar_width_spins:
+                        self.controls_manager.bar_width_spins[bar_name].setValue(bar_config.get('width', 100))
+                    if bar_name in self.controls_manager.bar_height_spins:
+                        self.controls_manager.bar_height_spins[bar_name].setValue(bar_config.get('height', 16))
+                    if bar_name in self.controls_manager.bar_corner_radius_spins:
+                        self.controls_manager.bar_corner_radius_spins[bar_name].setValue(bar_config.get('corner_radius', 0))
+                    if bar_name in self.controls_manager.bar_orientation_combos:
+                        orientation = bar_config.get('orientation', 'horizontal')
+                        idx = self.controls_manager.bar_orientation_combos[bar_name].findData(orientation)
+                        if idx >= 0:
+                            self.controls_manager.bar_orientation_combos[bar_name].setCurrentIndex(idx)
+                    if bar_name in self.controls_manager.bar_fill_color_btns:
+                        self.controls_manager.bar_fill_color_btns[bar_name].setStyleSheet(
+                            f"background-color: {fill_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+                    if bar_name in self.controls_manager.bar_bg_color_btns:
+                        self.controls_manager.bar_bg_color_btns[bar_name].setStyleSheet(
+                            f"background-color: {bg_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+                    if bar_name in self.controls_manager.bar_border_color_btns:
+                        self.controls_manager.bar_border_color_btns[bar_name].setStyleSheet(
+                            f"background-color: {border_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+
+                widget.update_display()
+
+        except Exception as e:
+            self.logger.error(f"Error applying bar graphs config: {e}")
+
+    def apply_circular_graphs_config(self, arc_configs):
+        """Apply configurations to circular graph widgets"""
+        try:
+            from PySide6.QtGui import QColor
+            
+            # First disable all arc widgets
+            for arc_widget in self.arc_widgets.values():
+                arc_widget.set_enabled(False)
+
+            # Apply configuration for each arc widget
+            for arc_config in arc_configs:
+                arc_name = arc_config.get('name')
+                if arc_name not in self.arc_widgets:
+                    continue
+
+                widget = self.arc_widgets[arc_name]
+
+                # Apply enabled state
+                enabled = arc_config.get('enabled', False)
+                widget.set_enabled(enabled)
+
+                # Apply properties before position (so size is correct for position calc)
+                radius = arc_config.get('radius', 40)
+                thickness = arc_config.get('thickness', 8)
+                widget.set_radius(radius)
+                widget.set_thickness(thickness)
+
+                # Apply position (convert from device to preview coordinates)
+                # Position is center of arc, need to convert to widget top-left
+                position = arc_config.get('position', {})
+                if position:
+                    center_x = int(position.get('x', 0) * self.preview_scale)
+                    center_y = int(position.get('y', 0) * self.preview_scale)
+                    # Widget position = center - radius - thickness/2 - border_padding
+                    border_padding = 4
+                    widget_x = center_x - radius - thickness // 2 - border_padding
+                    widget_y = center_y - radius - thickness // 2 - border_padding
+                    widget.move(widget_x, widget_y)
+
+                # Apply metric
+                metric_name = arc_config.get('metric_name', 'cpu_usage')
+                widget.set_metric_name(metric_name)
+
+                # Apply angles
+                widget.set_start_angle(arc_config.get('start_angle', 135))
+                widget.set_sweep_angle(arc_config.get('sweep_angle', 270))
+
+                # Apply colors (use hex_to_qcolor to properly parse RRGGBBAA format)
+                fill_color = arc_config.get('fill_color', '#00FF00FF')
+                bg_color = arc_config.get('background_color', '#323232FF')
+                border_color = arc_config.get('border_color', '#FFFFFFFF')
+                widget.set_fill_color(self.hex_to_qcolor(fill_color) or QColor(0, 255, 0))
+                widget.set_background_color(self.hex_to_qcolor(bg_color) or QColor(50, 50, 50))
+                widget.set_border_color(self.hex_to_qcolor(border_color) or QColor(255, 255, 255))
+                
+                # Apply border settings
+                widget.set_show_border(arc_config.get('show_border', False))
+                widget.set_border_width(arc_config.get('border_width', 1))
+
+                # Update controls
+                if self.controls_manager:
+                    if arc_name in self.controls_manager.arc_checkboxes:
+                        self.controls_manager.arc_checkboxes[arc_name].setChecked(enabled)
+                    if arc_name in self.controls_manager.arc_metric_combos:
+                        idx = self.controls_manager.arc_metric_combos[arc_name].findText(metric_name)
+                        if idx >= 0:
+                            self.controls_manager.arc_metric_combos[arc_name].setCurrentIndex(idx)
+                    if arc_name in self.controls_manager.arc_radius_spins:
+                        self.controls_manager.arc_radius_spins[arc_name].setValue(radius)
+                    if arc_name in self.controls_manager.arc_thickness_spins:
+                        self.controls_manager.arc_thickness_spins[arc_name].setValue(thickness)
+                    if arc_name in self.controls_manager.arc_start_angle_spins:
+                        self.controls_manager.arc_start_angle_spins[arc_name].setValue(arc_config.get('start_angle', 135))
+                    if arc_name in self.controls_manager.arc_sweep_angle_spins:
+                        self.controls_manager.arc_sweep_angle_spins[arc_name].setValue(arc_config.get('sweep_angle', 270))
+                    if arc_name in self.controls_manager.arc_fill_color_btns:
+                        self.controls_manager.arc_fill_color_btns[arc_name].setStyleSheet(
+                            f"background-color: {fill_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+                    if arc_name in self.controls_manager.arc_bg_color_btns:
+                        self.controls_manager.arc_bg_color_btns[arc_name].setStyleSheet(
+                            f"background-color: {bg_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+                    if arc_name in self.controls_manager.arc_border_color_btns:
+                        self.controls_manager.arc_border_color_btns[arc_name].setStyleSheet(
+                            f"background-color: {border_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+
+                widget.update_display()
+
+        except Exception as e:
+            self.logger.error(f"Error applying circular graphs config: {e}")
 
     def update_controls_from_widgets(self):
         """Update control interface to reflect current widget states"""
@@ -1130,20 +1326,52 @@ class MediaPreviewUI(QMainWindow):
                         enabled=True
                     ))
         
-        return date_config, time_config, metrics_configs, text_configs, bar_configs
+        # Circular graph configs
+        circular_configs = []
+        if hasattr(self, 'arc_widgets'):
+            for arc_name, widget in self.arc_widgets.items():
+                if widget and widget.enabled:
+                    pos = widget.get_position()
+                    device_x = int(pos[0] / self.preview_scale)
+                    device_y = int(pos[1] / self.preview_scale)
+                    
+                    circular_configs.append(CircularGraphConfig(
+                        metric_name=widget.get_metric_name(),
+                        position=(device_x, device_y),
+                        radius=widget.get_radius(),
+                        thickness=widget.get_thickness(),
+                        start_angle=widget.get_start_angle(),
+                        sweep_angle=widget.get_sweep_angle(),
+                        fill_color=qcolor_to_rgba(widget.get_fill_color()),
+                        background_color=qcolor_to_rgba(widget.get_background_color()),
+                        border_color=qcolor_to_rgba(widget.get_border_color()),
+                        show_border=widget.get_show_border(),
+                        border_width=widget.get_border_width(),
+                        min_value=widget.get_min_value(),
+                        max_value=widget.get_max_value(),
+                        enabled=True
+                    ))
+        
+        return date_config, time_config, metrics_configs, text_configs, bar_configs, circular_configs
 
     def update_preview_widget_configs(self):
-        """Update preview manager with current widget configs"""
+        """Update preview manager with current widget configs.
+        
+        Note: bar_configs and circular_configs are NOT passed to preview_manager
+        because they are rendered by the Qt overlay widgets (BarGraphWidget, CircularGraphWidget)
+        in the GUI. Passing them would cause double-rendering.
+        """
         if not self.preview_manager:
             return
         
-        date_config, time_config, metrics_configs, text_configs, bar_configs = self.collect_widget_configs()
+        date_config, time_config, metrics_configs, text_configs, bar_configs, circular_configs = self.collect_widget_configs()
         self.preview_manager.update_widget_configs(
             date_config=date_config,
             time_config=time_config,
             metrics_configs=metrics_configs,
             text_configs=text_configs,
-            bar_configs=bar_configs
+            bar_configs=[],  # Rendered by Qt overlay widgets
+            circular_configs=[]  # Rendered by Qt overlay widgets
         )
 
     def on_foreground_dragged(self, x, y):
@@ -1330,6 +1558,80 @@ class MediaPreviewUI(QMainWindow):
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
+    # Circular graph widget handlers
+    def on_arc_toggled(self, arc_name, enabled):
+        """Handle circular graph widget toggle"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_enabled(enabled)
+            self.update_preview_widget_configs()
+
+    def on_arc_metric_changed(self, arc_name, metric):
+        """Handle circular graph metric change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_metric_name(metric)
+            self.update_preview_widget_configs()
+
+    def on_arc_radius_changed(self, arc_name, radius):
+        """Handle circular graph radius change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_radius(radius)
+            self.update_preview_widget_configs()
+
+    def on_arc_thickness_changed(self, arc_name, thickness):
+        """Handle circular graph thickness change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_thickness(thickness)
+            self.update_preview_widget_configs()
+
+    def on_arc_start_angle_changed(self, arc_name, angle):
+        """Handle circular graph start angle change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_start_angle(angle)
+            self.update_preview_widget_configs()
+
+    def on_arc_sweep_angle_changed(self, arc_name, angle):
+        """Handle circular graph sweep angle change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_sweep_angle(angle)
+            self.update_preview_widget_configs()
+
+    def on_arc_fill_color_clicked(self, arc_name):
+        """Handle circular graph fill color picker"""
+        if arc_name in self.arc_widgets:
+            widget = self.arc_widgets[arc_name]
+            color = QColorDialog.getColor(widget.get_fill_color(), self, "Select Fill Color")
+            if color.isValid():
+                widget.set_fill_color(color)
+                if arc_name in self.controls_manager.arc_fill_color_btns:
+                    self.controls_manager.arc_fill_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
+
+    def on_arc_bg_color_clicked(self, arc_name):
+        """Handle circular graph background color picker"""
+        if arc_name in self.arc_widgets:
+            widget = self.arc_widgets[arc_name]
+            color = QColorDialog.getColor(widget.get_background_color(), self, "Select Background Color")
+            if color.isValid():
+                widget.set_background_color(color)
+                if arc_name in self.controls_manager.arc_bg_color_btns:
+                    self.controls_manager.arc_bg_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
+
+    def on_arc_border_color_clicked(self, arc_name):
+        """Handle circular graph border color picker"""
+        if arc_name in self.arc_widgets:
+            widget = self.arc_widgets[arc_name]
+            color = QColorDialog.getColor(widget.get_border_color(), self, "Select Border Color")
+            if color.isValid():
+                widget.set_border_color(color)
+                widget.set_show_border(True)  # Enable border when color is selected
+                if arc_name in self.controls_manager.arc_border_color_btns:
+                    self.controls_manager.arc_border_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
+
     def on_opacity_text_changed(self, text):
         """Handle opacity text input change (real-time)"""
         if text and text.replace('.', '').isdigit():
@@ -1493,7 +1795,7 @@ class MediaPreviewUI(QMainWindow):
         config_path = self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
             self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
-            existing_path=save_path
+            self.arc_widgets, existing_path=save_path
         )
         if config_path:
             self.current_theme_path = config_path  # Update path in case it was new
@@ -1558,6 +1860,16 @@ class MediaPreviewUI(QMainWindow):
                     checkbox.setChecked(False)
                     checkbox.blockSignals(False)
         
+        # Disable all circular graph widgets
+        for arc_name, widget in self.arc_widgets.items():
+            widget.set_enabled(False)
+            if self.controls_manager:
+                checkbox = self.controls_manager.arc_checkboxes.get(arc_name)
+                if checkbox:
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(False)
+                    checkbox.blockSignals(False)
+        
         # Update preview
         self.update_preview_widget_configs()
         
@@ -1566,7 +1878,7 @@ class MediaPreviewUI(QMainWindow):
         config_path = self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
             self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
-            existing_path=None  # Force new file
+            self.arc_widgets, existing_path=None  # Force new file
         )
         self.logger.debug(f"Config path returned: {config_path}")
         if config_path:
@@ -1580,7 +1892,8 @@ class MediaPreviewUI(QMainWindow):
         """Generate YAML configuration file"""
         self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
-            self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets, preview=True
+            self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
+            self.arc_widgets, preview=True
         )
 
     def closeEvent(self, event):

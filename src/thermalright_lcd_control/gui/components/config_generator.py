@@ -20,7 +20,8 @@ class ConfigGenerator:
         self.logger = get_gui_logger()
 
     def generate_config_data(self, preview_manager, text_style, metric_widgets,
-                             date_widget, time_widget, text_widgets=None, bar_widgets=None) -> Optional[dict]:
+                             date_widget, time_widget, text_widgets=None, bar_widgets=None, 
+                             arc_widgets=None) -> Optional[dict]:
         """Generate YAML configuration file based on current preview state"""
         try:
             # Get scale factor for converting preview coordinates to device coordinates
@@ -80,7 +81,8 @@ class ConfigGenerator:
                     "date": self._create_date_time_config(date_widget, 310, 15, text_style, scale),
                     "time": self._create_date_time_config(time_widget, 310, 35, text_style, scale),
                     "custom_texts": [],
-                    "bar_graphs": []
+                    "bar_graphs": [],
+                    "circular_graphs": []
                 }
             }
 
@@ -157,6 +159,31 @@ class ConfigGenerator:
                         }
                         config_data["display"]["bar_graphs"].append(bar_config)
 
+            # Add circular graph configurations
+            if arc_widgets:
+                for arc_name, widget in arc_widgets.items():
+                    if widget.enabled:
+                        # Convert position from preview to device coordinates
+                        pos = widget.get_position()
+                        arc_config = {
+                            "name": arc_name,
+                            "metric_name": widget.get_metric_name(),
+                            "enabled": widget.enabled,
+                            "position": {"x": int(pos[0] / scale), "y": int(pos[1] / scale)},
+                            "radius": widget.get_radius(),
+                            "thickness": widget.get_thickness(),
+                            "start_angle": widget.get_start_angle(),
+                            "sweep_angle": widget.get_sweep_angle(),
+                            "fill_color": self._qcolor_to_hex(widget.get_fill_color()),
+                            "background_color": self._qcolor_to_hex(widget.get_background_color()),
+                            "border_color": self._qcolor_to_hex(widget.get_border_color()),
+                            "show_border": widget.get_show_border(),
+                            "border_width": widget.get_border_width(),
+                            "min_value": widget.get_min_value(),
+                            "max_value": widget.get_max_value()
+                        }
+                        config_data["display"]["circular_graphs"].append(arc_config)
+
             return config_data
 
         except Exception as e:
@@ -164,8 +191,8 @@ class ConfigGenerator:
             return None
 
     def generate_config_yaml(self, preview_manager, text_style, metric_widgets,
-                             date_widget, time_widget, text_widgets=None, bar_widgets=None, 
-                             preview: bool = False, existing_path: str = None) -> Optional[str]:
+                             date_widget, time_widget, text_widgets=None, bar_widgets=None,
+                             arc_widgets=None, preview: bool = False, existing_path: str = None) -> Optional[str]:
         """Generate YAML configuration file based on current preview state
         
         Args:
@@ -174,7 +201,7 @@ class ConfigGenerator:
         try:
             self.logger.debug(f"generate_config_yaml called with preview={preview}, existing_path={existing_path}")
             config_data = self.generate_config_data(preview_manager, text_style, metric_widgets, date_widget,
-                                                    time_widget, text_widgets, bar_widgets)
+                                                    time_widget, text_widgets, bar_widgets, arc_widgets)
 
             # Use device dimensions, not scaled preview dimensions
             services_config_path = self._get_service_config_file_path(preview_manager.device_width,

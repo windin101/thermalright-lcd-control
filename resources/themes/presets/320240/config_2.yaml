@@ -1,0 +1,65 @@
+display:
+  background:
+    alpha: 1.0
+    color:
+      b: 0
+      g: 0
+      r: 0
+    enabled: true
+    path: /home/leeo/.config/thermalright-lcd-control/themes/backgrounds/d037.mp4
+    scale_mode: scaled_fill
+    type: video
+  bar_graphs: []
+  circular_graphs: []
+  custom_texts: []
+  date:
+    color: '#FFFFFFFF'
+    date_format: default
+    enabled: true
+    font_size: 18
+    position:
+      x: 40
+      y: 26
+    show_weekday: true
+    show_year: false
+    text: ''
+  font_family: Noto Sans Bold
+  foreground:
+    alpha: 0.5
+    enabled: false
+    path: null
+    position:
+      x: 0
+      y: 0
+  metrics:
+    configs: []
+    enabled: false
+  refresh_interval: 1.0
+  rotation: 0
+  text_effects:
+    gradient:
+      color1: '#FFFFFFFF'
+      color2: '#6B696CFF'
+      direction: vertical
+      enabled: true
+    outline:
+      color: '#000000FF'
+      enabled: true
+      width: 1
+    shadow:
+      blur: 3
+      color: '#00000080'
+      enabled: false
+      offset_x: 2
+      offset_y: 2
+  time:
+    color: '#FFFFFFFF'
+    enabled: true
+    font_size: 65
+    position:
+      x: 69
+      y: 48
+    show_am_pm: false
+    show_seconds: false
+    text: ''
+    use_24_hour: true

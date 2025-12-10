@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple
 
 import yaml
 
-from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType, MetricConfig, TextConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig
+from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType, MetricConfig, TextConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig, CircularGraphConfig
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 
@@ -101,6 +101,28 @@ class ConfigLoader:
             enabled=bar_data.get("enabled", True)
         )
 
+    def _parse_circular_config(self, arc_data: Dict[str, Any]) -> CircularGraphConfig:
+        """Parse a circular graph configuration from YAML data"""
+        return CircularGraphConfig(
+            metric_name=arc_data["metric_name"],
+            position=(
+                arc_data["position"]["x"],
+                arc_data["position"]["y"]
+            ),
+            radius=arc_data.get("radius", 40),
+            thickness=arc_data.get("thickness", 8),
+            start_angle=arc_data.get("start_angle", 135),
+            sweep_angle=arc_data.get("sweep_angle", 270),
+            fill_color=self._hex_to_rgba(arc_data.get("fill_color", "#00FF00FF")),
+            background_color=self._hex_to_rgba(arc_data.get("background_color", "#323232FF")),
+            border_color=self._hex_to_rgba(arc_data.get("border_color", "#FFFFFFFF")),
+            show_border=arc_data.get("show_border", False),
+            border_width=arc_data.get("border_width", 1),
+            min_value=arc_data.get("min_value", 0.0),
+            max_value=arc_data.get("max_value", 100.0),
+            enabled=arc_data.get("enabled", True)
+        )
+
     def _parse_date_config(self, date_data: Dict[str, Any]) -> DateConfig:
         """Parse a date configuration from YAML data with format options"""
         return DateConfig(
@@ -179,6 +201,12 @@ class ConfigLoader:
         for bar_data in bar_graphs:
             if bar_data.get("enabled", True):
                 bar_configs.append(self._parse_bar_config(bar_data))
+        # Parse circular graph configurations
+        circular_configs = []
+        circular_graphs = display_data.get("circular_graphs", [])
+        for arc_data in circular_graphs:
+            if arc_data.get("enabled", True):
+                circular_configs.append(self._parse_circular_config(arc_data))
         # Parse foreground configuration
         foreground_path = None
         foreground_position = (0, 0)
@@ -251,6 +279,7 @@ class ConfigLoader:
             time_config=time_config,
             text_configs=text_configs,
             bar_configs=bar_configs,
+            circular_configs=circular_configs,
             shadow_enabled=shadow_enabled,
             shadow_color=shadow_color,
             shadow_offset_x=shadow_offset_x,

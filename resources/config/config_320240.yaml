@@ -1,19 +1,61 @@
 display:
   background:
-    path: ./resources/themes/backgrounds/a001.mp4
-    type: video
+    alpha: 1.0
+    color:
+      b: 0
+      g: 0
+      r: 0
+    enabled: true
+    path: /home/leeo/.config/thermalright-lcd-control/themes/backgrounds/z013.gif
+    scale_mode: scaled_fill
+    type: gif
+  bar_graphs: []
+  circular_graphs:
+  - background_color: '#323232FF'
+    enabled: true
+    fill_color: '#55AAFFFF'
+    max_value: 100.0
+    metric_name: cpu_usage
+    min_value: 0.0
+    name: arc1
+    position:
+      x: 74
+      y: 128
+    radius: 63
+    start_angle: 135
+    sweep_angle: 360
+    thickness: 15
+  - background_color: '#323232FF'
+    enabled: true
+    fill_color: '#FF55FFFF'
+    max_value: 100.0
+    metric_name: gpu_usage
+    min_value: 0.0
+    name: arc2
+    position:
+      x: 245
+      y: 128
+    radius: 63
+    start_angle: 135
+    sweep_angle: 360
+    thickness: 15
+  custom_texts: []
   date:
     color: '#FFFFFFFF'
+    date_format: default
     enabled: false
-    font_size: 24
+    font_size: 15
     position:
-      x: 15
-      y: 3
+      x: 50
+      y: 25
+    show_weekday: true
+    show_year: false
     text: ''
+  font_family: Noto Sans Bold
   foreground:
-    alpha: 1.0
-    enabled: true
-    path: ./resources/themes/foregrounds/{resolution}/006b.png
+    alpha: 0.5
+    enabled: false
+    path: null
     position:
       x: 0
       y: 0
@@ -21,51 +63,57 @@ display:
     configs:
     - color: '#FFFFFFFF'
       enabled: true
-      font_size: 24
+      font_size: 17
       format_string: '{label}{value}{unit}'
-      label: ''
-      name: cpu_temperature
-      position:
-        x: 54
-        y: 104
-      unit: °
-    - color: '#FFFFFFFF'
-      enabled: true
-      font_size: 24
-      format_string: '{label}{value}{unit}'
-      label: ''
-      name: gpu_temperature
-      position:
-        x: 253
-        y: 102
-      unit: °
-    - color: '#FFFFFFFF'
-      enabled: true
-      font_size: 24
-      format_string: '{label}{value}{unit}'
-      label: ''
+      freq_format: ghz
+      label: CPU
+      label_font_size: 12
+      label_position: above
       name: cpu_frequency
       position:
-        x: 89
-        y: 33
-      unit: MHZ
+        x: 40
+        y: 109
+      unit: GHz
     - color: '#FFFFFFFF'
       enabled: true
-      font_size: 24
+      font_size: 17
       format_string: '{label}{value}{unit}'
-      label: ''
+      freq_format: ghz
+      label: GPU
+      label_font_size: 12
+      label_position: above
       name: gpu_frequency
       position:
-        x: 90
-        y: 171
-      unit: MHZ
+        x: 210
+        y: 110
+      unit: GHz
     enabled: true
+  refresh_interval: 1.0
   rotation: 0
+  text_effects:
+    gradient:
+      color1: '#FFFFFFFF'
+      color2: '#6B696CFF'
+      direction: vertical
+      enabled: true
+    outline:
+      color: '#000000FF'
+      enabled: true
+      width: 1
+    shadow:
+      blur: 0
+      color: '#00000080'
+      enabled: false
+      offset_x: 2
+      offset_y: 1
   time:
     color: '#FFFFFFFF'
-    enabled: true
-    font_size: 24
+    enabled: false
+    font_size: 65
     position:
-      x: 153
-      y: 103
+      x: 70
+      y: 43
+    show_am_pm: false
+    show_seconds: false
     text: ''
+    use_24_hour: true

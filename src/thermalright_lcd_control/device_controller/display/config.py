@@ -275,3 +275,17 @@ class DisplayConfig:
     def __post_init__(self):
         if self.metrics_configs is None:
             self.metrics_configs = []
+
+    @property
+    def working_width(self) -> int:
+        """Get working width (swapped for 90/270 degree rotation)"""
+        if self.rotation in (90, 270):
+            return self.output_height
+        return self.output_width
+
+    @property
+    def working_height(self) -> int:
+        """Get working height (swapped for 90/270 degree rotation)"""
+        if self.rotation in (90, 270):
+            return self.output_width
+        return self.output_height

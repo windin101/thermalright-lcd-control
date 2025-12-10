@@ -148,12 +148,12 @@ class MediaPreviewUI(QMainWindow):
 
         # Preview frame
         frame_width, frame_height = preview_width + 4, preview_height + 4
-        preview_frame = QFrame()
-        preview_frame.setObjectName("previewFrame")
-        preview_frame.setFixedSize(frame_width, frame_height)
+        self.preview_frame = QFrame()
+        self.preview_frame.setObjectName("previewFrame")
+        self.preview_frame.setFixedSize(frame_width, frame_height)
 
         # Preview widget and label - use light background
-        self.preview_widget = QWidget(preview_frame)
+        self.preview_widget = QWidget(self.preview_frame)
         self.preview_widget.setGeometry(2, 2, preview_width, preview_height)
         self.preview_widget.setStyleSheet("background-color: #ecf0f1;")
 
@@ -180,7 +180,7 @@ class MediaPreviewUI(QMainWindow):
         self.preview_manager.set_device_dimensions(base_width, base_height)
 
         # Add preview frame directly (aligned to top)
-        parent_layout.addWidget(preview_frame, 0, Qt.AlignTop | Qt.AlignHCenter)
+        parent_layout.addWidget(self.preview_frame, 0, Qt.AlignTop | Qt.AlignHCenter)
 
     def create_overlay_widgets(self):
         """Create all overlay widgets"""
@@ -350,13 +350,11 @@ class MediaPreviewUI(QMainWindow):
             # Load rotation if specified
             rotation = display_config.get('rotation', 0)
             self.current_rotation = rotation
-            if self.controls_manager and self.controls_manager.rotation_combo:
-                # Find and set the correct index
-                index = self.controls_manager.rotation_combo.findData(rotation)
-                if index >= 0:
-                    self.controls_manager.rotation_combo.setCurrentIndex(index)
+            if self.controls_manager:
+                self.controls_manager.set_rotation(rotation)
             if self.preview_manager:
                 self.preview_manager.set_rotation(rotation)
+                self._update_preview_dimensions_for_rotation(rotation)
 
             # Load font family if specified
             font_family = display_config.get('font_family')
@@ -1302,6 +1300,39 @@ class MediaPreviewUI(QMainWindow):
         self.current_rotation = rotation
         if self.preview_manager:
             self.preview_manager.set_rotation(rotation)
+            self._update_preview_dimensions_for_rotation(rotation)
+
+    def _update_preview_dimensions_for_rotation(self, rotation: int):
+        """Resize preview panel based on rotation (90/270 swaps width/height)"""
+        base_width = self.detected_device.get('width', 320) if self.detected_device else 320
+        base_height = self.detected_device.get('height', 240) if self.detected_device else 240
+        
+        # Swap dimensions for 90 or 270 degree rotation
+        if rotation in (90, 270):
+            display_width, display_height = base_height, base_width
+        else:
+            display_width, display_height = base_width, base_height
+        
+        preview_width = int(display_width * self.preview_scale)
+        preview_height = int(display_height * self.preview_scale)
+        frame_width, frame_height = preview_width + 4, preview_height + 4
+        
+        # Resize preview components
+        self.preview_frame.setFixedSize(frame_width, frame_height)
+        self.preview_widget.setGeometry(2, 2, preview_width, preview_height)
+        self.preview_label.setGeometry(0, 0, preview_width, preview_height)
+        
+        # Resize grid overlay
+        if hasattr(self, 'grid_overlay'):
+            self.grid_overlay.setGeometry(0, 0, preview_width, preview_height)
+        
+        # Update foreground widget bounds
+        if hasattr(self, 'foreground_widget'):
+            self.foreground_widget.set_preview_bounds(preview_width, preview_height)
+        
+        # Update preview manager dimensions
+        if self.preview_manager:
+            self.preview_manager.set_preview_dimensions(preview_width, preview_height)
 
     def on_refresh_interval_changed(self, interval):
         """Handle LCD refresh interval change"""

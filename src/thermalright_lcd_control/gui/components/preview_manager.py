@@ -70,6 +70,11 @@ class PreviewManager:
         self.preview_width = int(self.device_width * self.preview_scale)
         self.preview_height = int(self.device_height * self.preview_scale)
 
+    def set_preview_dimensions(self, width: int, height: int):
+        """Set preview dimensions directly (called when rotation changes)"""
+        self.preview_width = width
+        self.preview_height = height
+
     def initialize_default_background(self, backgrounds_dir: str):
         """Initialize with the first background file found"""
         try:
@@ -174,7 +179,9 @@ class PreviewManager:
             return
 
         try:
-            # Get frame without rotation for preview (apply_rotation=False)
+            # Get frame WITHOUT rotation - preview shows the working dimensions (what user designs)
+            # The physical screen is rotated, so the user sees their design correctly
+            # Hardware rotation happens separately when sending to USB
             pil_image, duration = self.display_generator.get_frame_with_duration(apply_rotation=False)
             qpixmap = self.pil_image_to_qpixmap(pil_image)
 

@@ -7,12 +7,17 @@ Themes tab for displaying and selecting theme configurations
 
 import glob
 import os
+import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 
+import yaml
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QScrollArea, QGridLayout, QPushButton, QMessageBox,
-                               QSpacerItem, QSizePolicy, QComboBox)
+                               QSpacerItem, QSizePolicy, QComboBox, QFileDialog,
+                               QInputDialog)
 
 from thermalright_lcd_control.gui.widgets.thumbnail_widget import ThumbnailWidget
 from thermalright_lcd_control.common.logging_config import get_gui_logger
@@ -42,6 +47,13 @@ class ThemesTab(QWidget):
         self.thumbnails = []
         self.dev_width = dev_width
         self.dev_height = dev_height
+        self.current_theme_path = None  # Track currently selected theme for export
+        
+        # Determine base config directory for media folders
+        self.base_config_dir = self.themes_dir.parent.parent  # ~/.config/thermalright-lcd-control/
+        self.backgrounds_dir = self.base_config_dir / "themes" / "backgrounds"
+        self.foregrounds_dir = self.base_config_dir / "themes" / "foregrounds"
+        
         self.setup_ui()
         self.load_themes()
 
@@ -68,10 +80,25 @@ class ThemesTab(QWidget):
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_themes)
         refresh_btn.setMaximumWidth(150)
+        
+        # Export button
+        self.export_btn = QPushButton("Export")
+        self.export_btn.clicked.connect(self.on_export_clicked)
+        self.export_btn.setMaximumWidth(100)
+        self.export_btn.setToolTip("Export selected theme as a portable archive")
+        self.export_btn.setEnabled(False)  # Disabled until a theme is selected
+        
+        # Import button
+        import_btn = QPushButton("Import")
+        import_btn.clicked.connect(self.on_import_clicked)
+        import_btn.setMaximumWidth(100)
+        import_btn.setToolTip("Import a theme from an archive")
 
         header_layout.addWidget(new_theme_btn)
         header_layout.addWidget(open_folder_btn)
         header_layout.addWidget(refresh_btn)
+        header_layout.addWidget(self.export_btn)
+        header_layout.addWidget(import_btn)
         header_layout.addStretch()
         
         # Startup mode controls
@@ -398,6 +425,8 @@ class ThemesTab(QWidget):
 
     def on_theme_selected(self, theme_path: str):
         """Handle theme selection"""
+        self.current_theme_path = theme_path
+        self.export_btn.setEnabled(True)
         self.theme_selected.emit(theme_path)
 
     def generate_theme_preview(self, yaml_file: Path) -> 'QPixmap | None':
@@ -430,7 +459,7 @@ class ThemesTab(QWidget):
                 'gpu_mem_percent': 50
             }
             
-            # Generate a frame with the sample metrics (no rotation for thumbnail)
+            # Generate a frame with the sample metrics (apply rotation to show correct orientation)
             pil_image = generator.generate_frame_with_metrics(sample_metrics, apply_rotation=False)
             
             # Clean up the generator
@@ -616,6 +645,8 @@ class ThemesTab(QWidget):
         """Automatically load theme based on startup mode setting"""
         theme_path = self.get_startup_theme_path()
         if theme_path:
+            self.current_theme_path = theme_path
+            self.export_btn.setEnabled(True)
             self.theme_selected.emit(theme_path)
             return True
         return False
@@ -643,3 +674,252 @@ class ThemesTab(QWidget):
         """Handle close event"""
         self.cleanup_thumbnails()
         super().closeEvent(event)
+
+    def on_export_clicked(self):
+        """Handle export button click"""
+        if not self.current_theme_path:
+            QMessageBox.warning(self, "Export Error", "No theme selected to export.")
+            return
+        
+        theme_path = Path(self.current_theme_path)
+        if not theme_path.exists():
+            QMessageBox.warning(self, "Export Error", f"Theme file not found: {theme_path}")
+            return
+        
+        # Get the theme name for default filename
+        theme_name = theme_path.stem
+        
+        # Open file dialog to choose export location
+        default_filename = f"{theme_name}.zip"
+        export_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Theme",
+            str(Path.home() / "Downloads" / default_filename),
+            "Zip Archives (*.zip)"
+        )
+        
+        if not export_path:
+            return  # User cancelled
+        
+        try:
+            self._export_theme(theme_path, Path(export_path))
+            QMessageBox.information(self, "Export Successful", 
+                                   f"Theme exported successfully to:\n{export_path}")
+        except Exception as e:
+            self.logger.error(f"Error exporting theme: {e}")
+            QMessageBox.critical(self, "Export Error", f"Failed to export theme:\n{str(e)}")
+
+    def _export_theme(self, theme_path: Path, export_path: Path):
+        """Export a theme to a zip archive with all referenced media"""
+        # Load theme YAML
+        with open(theme_path, 'r', encoding='utf-8') as f:
+            theme_data = yaml.safe_load(f)
+        
+        display_config = theme_data.get('display', {})
+        
+        # Create temp directory for archive contents
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Track media files to include
+            media_files = []
+            
+            # Check background
+            bg_config = display_config.get('background', {})
+            bg_path = bg_config.get('path')
+            if bg_path and Path(bg_path).exists():
+                media_files.append(('background', Path(bg_path)))
+            
+            # Check foreground
+            fg_config = display_config.get('foreground', {})
+            fg_path_template = fg_config.get('path', '')
+            if fg_path_template:
+                # Resolve the {resolution} placeholder
+                resolution = f"{self.dev_width}{self.dev_height}"
+                fg_path = fg_path_template.format(resolution=resolution)
+                if Path(fg_path).exists():
+                    media_files.append(('foreground', Path(fg_path)))
+            
+            # Create directories in temp folder
+            (temp_path / "backgrounds").mkdir(exist_ok=True)
+            (temp_path / "foregrounds").mkdir(exist_ok=True)
+            
+            # Copy media files and update paths in theme data
+            for media_type, media_path in media_files:
+                dest_folder = temp_path / (media_type + "s")  # backgrounds or foregrounds
+                dest_file = dest_folder / media_path.name
+                shutil.copy2(media_path, dest_file)
+                
+                # Update path in theme data to be relative
+                if media_type == 'background':
+                    display_config['background']['path'] = f"backgrounds/{media_path.name}"
+                elif media_type == 'foreground':
+                    display_config['foreground']['path'] = f"foregrounds/{media_path.name}"
+            
+            # Write modified theme YAML
+            theme_yaml_path = temp_path / "theme.yaml"
+            with open(theme_yaml_path, 'w', encoding='utf-8') as f:
+                yaml.dump(theme_data, f, default_flow_style=False, allow_unicode=True)
+            
+            # Create metadata file with original theme name and resolution
+            metadata = {
+                'theme_name': theme_path.stem,
+                'resolution': f"{self.dev_width}x{self.dev_height}",
+                'export_version': '1.0'
+            }
+            with open(temp_path / "metadata.yaml", 'w', encoding='utf-8') as f:
+                yaml.dump(metadata, f, default_flow_style=False)
+            
+            # Create zip archive
+            with zipfile.ZipFile(export_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file_path in temp_path.rglob('*'):
+                    if file_path.is_file():
+                        arc_name = file_path.relative_to(temp_path)
+                        zf.write(file_path, arc_name)
+            
+            self.logger.info(f"Theme exported to {export_path}")
+
+    def on_import_clicked(self):
+        """Handle import button click"""
+        # Open file dialog to choose import file
+        import_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Theme",
+            str(Path.home() / "Downloads"),
+            "Zip Archives (*.zip)"
+        )
+        
+        if not import_path:
+            return  # User cancelled
+        
+        try:
+            imported_theme = self._import_theme(Path(import_path))
+            if imported_theme:
+                self.refresh_themes()
+                QMessageBox.information(self, "Import Successful", 
+                                       f"Theme imported successfully:\n{imported_theme}")
+                # Select the imported theme
+                self.on_theme_selected(str(imported_theme))
+        except Exception as e:
+            self.logger.error(f"Error importing theme: {e}")
+            QMessageBox.critical(self, "Import Error", f"Failed to import theme:\n{str(e)}")
+
+    def _import_theme(self, import_path: Path) -> Path | None:
+        """Import a theme from a zip archive"""
+        # Extract to temp directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Extract zip
+            with zipfile.ZipFile(import_path, 'r') as zf:
+                zf.extractall(temp_path)
+            
+            # Check for required files
+            theme_yaml = temp_path / "theme.yaml"
+            if not theme_yaml.exists():
+                raise ValueError("Invalid theme archive: missing theme.yaml")
+            
+            # Load metadata if present
+            metadata_file = temp_path / "metadata.yaml"
+            if metadata_file.exists():
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = yaml.safe_load(f)
+                theme_name = metadata.get('theme_name', 'imported_theme')
+            else:
+                theme_name = import_path.stem
+            
+            # Load theme YAML
+            with open(theme_yaml, 'r', encoding='utf-8') as f:
+                theme_data = yaml.safe_load(f)
+            
+            display_config = theme_data.get('display', {})
+            
+            # Check for naming conflicts
+            dest_theme_path = self.themes_dir / f"{theme_name}.yaml"
+            if dest_theme_path.exists():
+                # Ask user what to do
+                result = QMessageBox.question(
+                    self,
+                    "Theme Exists",
+                    f"A theme named '{theme_name}' already exists.\n\nDo you want to rename the imported theme?",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
+                )
+                
+                if result == QMessageBox.Cancel:
+                    return None
+                elif result == QMessageBox.Yes:
+                    # Prompt for new name
+                    new_name, ok = QInputDialog.getText(
+                        self,
+                        "Rename Theme",
+                        "Enter a new name for the theme:",
+                        text=f"{theme_name}_imported"
+                    )
+                    if not ok or not new_name.strip():
+                        return None
+                    theme_name = new_name.strip()
+                    dest_theme_path = self.themes_dir / f"{theme_name}.yaml"
+                # If No, we'll overwrite
+            
+            # Ensure destination directories exist
+            self.backgrounds_dir.mkdir(parents=True, exist_ok=True)
+            self.foregrounds_dir.mkdir(parents=True, exist_ok=True)
+            resolution_fg_dir = self.foregrounds_dir / f"{self.dev_width}{self.dev_height}"
+            resolution_fg_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy background files
+            src_bg_dir = temp_path / "backgrounds"
+            if src_bg_dir.exists():
+                for bg_file in src_bg_dir.iterdir():
+                    if bg_file.is_file():
+                        dest_bg = self.backgrounds_dir / bg_file.name
+                        # Check for conflict
+                        if dest_bg.exists():
+                            # Generate unique name
+                            dest_bg = self._get_unique_path(dest_bg)
+                        shutil.copy2(bg_file, dest_bg)
+                        
+                        # Update path in theme data
+                        if display_config.get('background', {}).get('path') == f"backgrounds/{bg_file.name}":
+                            display_config['background']['path'] = str(dest_bg)
+            
+            # Copy foreground files
+            src_fg_dir = temp_path / "foregrounds"
+            if src_fg_dir.exists():
+                for fg_file in src_fg_dir.iterdir():
+                    if fg_file.is_file():
+                        dest_fg = resolution_fg_dir / fg_file.name
+                        # Check for conflict
+                        if dest_fg.exists():
+                            dest_fg = self._get_unique_path(dest_fg)
+                        shutil.copy2(fg_file, dest_fg)
+                        
+                        # Update path in theme data with {resolution} placeholder
+                        if display_config.get('foreground', {}).get('path') == f"foregrounds/{fg_file.name}":
+                            # Use the placeholder format for portability
+                            display_config['foreground']['path'] = str(
+                                self.foregrounds_dir / "{resolution}" / dest_fg.name
+                            )
+            
+            # Write the theme YAML to themes directory
+            with open(dest_theme_path, 'w', encoding='utf-8') as f:
+                yaml.dump(theme_data, f, default_flow_style=False, allow_unicode=True)
+            
+            self.logger.info(f"Theme imported from {import_path} to {dest_theme_path}")
+            return dest_theme_path
+
+    def _get_unique_path(self, file_path: Path) -> Path:
+        """Get a unique file path by appending a number if file exists"""
+        if not file_path.exists():
+            return file_path
+        
+        stem = file_path.stem
+        suffix = file_path.suffix
+        parent = file_path.parent
+        
+        counter = 1
+        while True:
+            new_path = parent / f"{stem}_{counter}{suffix}"
+            if not new_path.exists():
+                return new_path
+            counter += 1

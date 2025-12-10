@@ -116,8 +116,9 @@ class FrameManager:
 
     def _resize_image(self, image: Image.Image) -> Image.Image:
         """Resize/scale image based on the configured scale mode"""
-        target_width = self.config.output_width
-        target_height = self.config.output_height
+        # Use working dimensions (swapped for 90/270 rotation)
+        target_width = self.config.working_width
+        target_height = self.config.working_height
         scale_mode = getattr(self.config, 'background_scale_mode', 'stretch')
         
         if scale_mode == "stretch":
@@ -350,7 +351,8 @@ class FrameManager:
         # If background is disabled, return a solid color frame
         if not getattr(self.config, 'background_enabled', True):
             bg_color = getattr(self.config, 'background_color', (0, 0, 0))
-            return Image.new('RGBA', (self.config.output_width, self.config.output_height), (*bg_color, 255))
+            # Use working dimensions (swapped for 90/270 rotation)
+            return Image.new('RGBA', (self.config.working_width, self.config.working_height), (*bg_color, 255))
 
         current_time = time.time()
         elapsed = current_time - self.frame_start_time

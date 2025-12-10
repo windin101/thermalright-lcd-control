@@ -520,6 +520,23 @@ class DraggableForegroundWidget(QLabel):
         self.move(0, 0)
         self.hide()  # Hidden by default until foreground is set
 
+    def set_preview_bounds(self, width: int, height: int):
+        """Update the preview bounds (called when rotation changes dimensions)"""
+        self._width = width
+        self._height = height
+        # Constrain foreground widget to new bounds if active
+        if self._active:
+            scaled_w = int(self._image_size[0] * self._preview_scale)
+            scaled_h = int(self._image_size[1] * self._preview_scale)
+            max_w = min(scaled_w, width)
+            max_h = min(scaled_h, height)
+            self.setFixedSize(max_w, max_h)
+            # Ensure position is still within bounds
+            current_pos = self.pos()
+            new_x = min(current_pos.x(), max(0, width - self.width()))
+            new_y = min(current_pos.y(), max(0, height - self.height()))
+            self.move(new_x, new_y)
+
     def set_preview_scale(self, scale: float):
         """Set the preview scale factor"""
         self._preview_scale = scale

@@ -170,8 +170,8 @@ class DisplayDevice87AD70DB320(UsbDevice):
 
     # --- encoding: RGB565 big-endian, row-major, no per-row separators ---
     def _encode_image(self, img: Image) -> bytes:
-        if img.size != (self.width, self.height):
-            img = img.resize((self.width, self.height), Image.LANCZOS)
+        # Use actual image dimensions (may be swapped due to rotation)
+        width, height = img.size
         rgb = img.convert("RGB")
         arr = np.array(rgb, dtype=np.uint8)
         r = arr[..., 0].astype(np.uint16)
@@ -180,7 +180,7 @@ class DisplayDevice87AD70DB320(UsbDevice):
         v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
         hi = (v >> 8).astype(np.uint8)
         lo = (v & 0xFF).astype(np.uint8)
-        out = np.empty((self.height, self.width * 2), dtype=np.uint8)
+        out = np.empty((height, width * 2), dtype=np.uint8)
         out[..., 0::2] = hi  # BE
         out[..., 1::2] = lo
         return out.tobytes()
@@ -290,15 +290,13 @@ class DisplayDevice87AD70DB480(UsbDevice):
         """
         Encode image as JPEG instead of raw RGB565.
         This matches the JPEG data seen in the packet capture.
+        Image dimensions may be swapped due to rotation (90/270 degrees).
         """
-        if img.size != (self.width, self.height):
-            img = img.resize((self.width, self.height), Image.LANCZOS)
-
         # Convert to RGB if not already
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
-        # Encode as JPEG
+        # Encode as JPEG - dimensions are embedded in JPEG format
         import io
         jpeg_buffer = io.BytesIO()
         img.save(jpeg_buffer, format='JPEG', quality=self.jpeg_quality, optimize=True)

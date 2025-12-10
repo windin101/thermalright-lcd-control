@@ -3,8 +3,8 @@
 
 """Controls manager for UI composition controls"""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
                                QGroupBox, QLabel, QLineEdit, QPushButton,
                                QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
@@ -138,32 +138,178 @@ class ControlsManager:
         return scroll_area
 
     def _create_rotation_controls(self) -> QGroupBox:
-        """Create rotation controls"""
-        rotation_group = QGroupBox("Display Rotation")
-        rotation_layout = QHBoxLayout(rotation_group)
+        """Create screen settings controls (rotation buttons and refresh interval)"""
+        screen_group = QGroupBox("Screen Settings")
+        screen_layout = QHBoxLayout(screen_group)
 
         rotation_label = QLabel("Rotation:")
-        rotation_layout.addWidget(rotation_label, alignment=Qt.AlignVCenter)
+        screen_layout.addWidget(rotation_label, alignment=Qt.AlignVCenter)
 
-        self.rotation_combo = QComboBox()
+        # Create rotation button group
+        self.rotation_buttons = []
+        self.current_rotation = 0
+        
+        # Button configurations: (rotation_value, tooltip, icon_text)
+        rotation_configs = [
+            (0, "No Rotation (0°)", "⬜"),
+            (90, "Clockwise (90°)", "⬜"),
+            (180, "Upside Down (180°)", "⬜"),
+            (270, "Counter-clockwise (270°)", "⬜"),
+        ]
+        
+        for rotation_value, tooltip, icon_text in rotation_configs:
+            btn = QPushButton()
+            btn.setFixedSize(36, 36)
+            btn.setToolTip(tooltip)
+            btn.setCheckable(True)
+            btn.setProperty("rotation_value", rotation_value)
+            
+            # Create rotation icon using a custom painted widget
+            self._set_rotation_button_icon(btn, rotation_value)
+            
+            btn.clicked.connect(lambda checked, r=rotation_value: self._on_rotation_button_clicked(r))
+            screen_layout.addWidget(btn, alignment=Qt.AlignVCenter)
+            self.rotation_buttons.append(btn)
+        
+        # Set first button as selected by default
+        self.rotation_buttons[0].setChecked(True)
+        self._update_rotation_button_styles()
+        
+        screen_layout.addSpacing(15)
+        
+        # LCD Refresh interval
+        refresh_label = QLabel("Refresh:")
+        screen_layout.addWidget(refresh_label, alignment=Qt.AlignVCenter)
+        
+        self.refresh_interval_spin = QDoubleSpinBox()
+        self.refresh_interval_spin.setRange(0.5, 3.0)
+        self.refresh_interval_spin.setValue(1.0)
+        self.refresh_interval_spin.setSingleStep(0.5)
+        self.refresh_interval_spin.setDecimals(1)
+        self.refresh_interval_spin.setSuffix(" sec")
+        self.refresh_interval_spin.setFixedWidth(70)
+        self.refresh_interval_spin.setToolTip("How often the LCD screen updates (0.5-3 seconds)")
+        self.refresh_interval_spin.valueChanged.connect(self._on_refresh_interval_changed)
+        screen_layout.addWidget(self.refresh_interval_spin, alignment=Qt.AlignVCenter)
+        
+        screen_layout.addStretch()
 
-        self.rotation_combo.addItem("0°", 0)
-        self.rotation_combo.addItem("90°", 90)
-        self.rotation_combo.addItem("180°", 180)
-        self.rotation_combo.addItem("270°", 270)
-        self.rotation_combo.setCurrentIndex(0)  # Default to 0°
-        self.rotation_combo.currentIndexChanged.connect(self._on_rotation_changed)
+        return screen_group
 
-        rotation_layout.addWidget(self.rotation_combo, alignment=Qt.AlignVCenter)
-        rotation_layout.addStretch()
+    def _set_rotation_button_icon(self, btn: QPushButton, rotation: int):
+        """Set a custom painted icon for the rotation button"""
+        from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QBrush
+        from PySide6.QtCore import QRect
+        
+        size = 28
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Screen rectangle dimensions (landscape base)
+        margin = 3
+        screen_w = size - 2 * margin
+        screen_h = int(screen_w * 0.7)  # Aspect ratio for screen
+        
+        # Center the screen
+        x = margin
+        y = (size - screen_h) // 2
+        
+        # Draw based on rotation
+        pen = QPen(QColor("#2c3e50"), 2)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(QColor("#ecf0f1")))
+        
+        if rotation == 0:
+            # Landscape - normal
+            painter.drawRoundedRect(x, y, screen_w, screen_h, 2, 2)
+            # Draw indicator line at top
+            painter.setPen(QPen(QColor("#3498db"), 2))
+            painter.drawLine(x + 4, y + 3, x + screen_w - 4, y + 3)
+        elif rotation == 90:
+            # Portrait - rotated clockwise
+            portrait_w = screen_h
+            portrait_h = screen_w
+            px = (size - portrait_w) // 2
+            py = margin
+            painter.drawRoundedRect(px, py, portrait_w, portrait_h, 2, 2)
+            # Draw indicator line on right
+            painter.setPen(QPen(QColor("#3498db"), 2))
+            painter.drawLine(px + portrait_w - 3, py + 4, px + portrait_w - 3, py + portrait_h - 4)
+        elif rotation == 180:
+            # Landscape - upside down
+            painter.drawRoundedRect(x, y, screen_w, screen_h, 2, 2)
+            # Draw indicator line at bottom
+            painter.setPen(QPen(QColor("#3498db"), 2))
+            painter.drawLine(x + 4, y + screen_h - 3, x + screen_w - 4, y + screen_h - 3)
+        elif rotation == 270:
+            # Portrait - rotated counter-clockwise
+            portrait_w = screen_h
+            portrait_h = screen_w
+            px = (size - portrait_w) // 2
+            py = margin
+            painter.drawRoundedRect(px, py, portrait_w, portrait_h, 2, 2)
+            # Draw indicator line on left
+            painter.setPen(QPen(QColor("#3498db"), 2))
+            painter.drawLine(px + 3, py + 4, px + 3, py + portrait_h - 4)
+        
+        painter.end()
+        
+        btn.setIcon(QIcon(pixmap))
+        btn.setIconSize(QSize(size, size))
 
-        return rotation_group
-
-    def _on_rotation_changed(self, index):
-        """Handle rotation combo box change"""
-        rotation_value = self.rotation_combo.itemData(index)
+    def _on_rotation_button_clicked(self, rotation_value: int):
+        """Handle rotation button click"""
+        self.current_rotation = rotation_value
+        
+        # Update button checked states
+        for btn in self.rotation_buttons:
+            btn.setChecked(btn.property("rotation_value") == rotation_value)
+        
+        self._update_rotation_button_styles()
+        
         if hasattr(self.parent, 'on_rotation_changed'):
             self.parent.on_rotation_changed(rotation_value)
+
+    def _update_rotation_button_styles(self):
+        """Update rotation button styles based on selection"""
+        for btn in self.rotation_buttons:
+            if btn.isChecked():
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3498db;
+                        border: 2px solid #2980b9;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #2980b9;
+                    }
+                """)
+            else:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ecf0f1;
+                        border: 1px solid #bdc3c7;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #d5dbdb;
+                        border: 1px solid #95a5a6;
+                    }
+                """)
+
+    def set_rotation(self, rotation: int):
+        """Set the current rotation (called when loading themes)"""
+        self.current_rotation = rotation
+        for btn in self.rotation_buttons:
+            btn.setChecked(btn.property("rotation_value") == rotation)
+        self._update_rotation_button_styles()
+
+    def _on_rotation_changed(self, index):
+        """Handle rotation combo box change - deprecated, kept for compatibility"""
+        pass
 
     def _create_snap_to_grid_controls(self) -> QGroupBox:
         """Create snap-to-grid controls"""
@@ -1496,26 +1642,35 @@ class ControlsManager:
         return self._create_action_controls()
 
     def _create_action_controls(self) -> QGroupBox:
-        """Create action buttons with refresh interval on the left"""
+        """Create action buttons"""
         actions_group = QGroupBox()
         actions_layout = QHBoxLayout(actions_group)
         actions_layout.setSpacing(15)
         actions_layout.setContentsMargins(10, 5, 10, 5)
         
-        # Refresh interval on the left
-        refresh_label = QLabel("LCD Refresh:")
-        actions_layout.addWidget(refresh_label, alignment=Qt.AlignVCenter)
-        
-        self.refresh_interval_spin = QDoubleSpinBox()
-        self.refresh_interval_spin.setRange(0.5, 3.0)
-        self.refresh_interval_spin.setValue(1.0)
-        self.refresh_interval_spin.setSingleStep(0.5)
-        self.refresh_interval_spin.setDecimals(1)
-        self.refresh_interval_spin.setSuffix(" sec")
-        self.refresh_interval_spin.setFixedWidth(60)
-        self.refresh_interval_spin.setToolTip("How often the LCD screen updates (0.5-3 seconds)")
-        self.refresh_interval_spin.valueChanged.connect(self._on_refresh_interval_changed)
-        actions_layout.addWidget(self.refresh_interval_spin, alignment=Qt.AlignVCenter)
+        # Restart Service button on the left
+        restart_service_btn = QPushButton("Restart Service")
+        restart_service_btn.setAutoDefault(False)
+        restart_service_btn.setDefault(False)
+        restart_service_btn.clicked.connect(self._on_restart_service_clicked)
+        restart_service_btn.setFixedSize(120, 35)
+        restart_service_btn.setToolTip("Restart the thermalright-lcd-control service (requires sudo)")
+        restart_service_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: 1px solid #d35400;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+        """)
+        actions_layout.addWidget(restart_service_btn, alignment=Qt.AlignVCenter)
         
         actions_layout.addStretch()
         
@@ -1535,6 +1690,80 @@ class ControlsManager:
         actions_layout.addWidget(preview_config_btn, alignment=Qt.AlignVCenter)
 
         return actions_group
+
+    def _on_restart_service_clicked(self):
+        """Handle restart service button click"""
+        import subprocess
+        from PySide6.QtWidgets import QMessageBox
+        
+        # Confirm with user
+        reply = QMessageBox.question(
+            None,
+            "Restart Service",
+            "This will restart the thermalright-lcd-control service.\n\n"
+            "You will be prompted for your sudo password.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        try:
+            # Use pkexec for graphical sudo prompt, fallback to terminal
+            service_name = "thermalright-lcd-control.service"
+            
+            # Try pkexec first (graphical sudo)
+            result = subprocess.run(
+                ["pkexec", "systemctl", "restart", service_name],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                QMessageBox.information(
+                    None,
+                    "Service Restarted",
+                    f"The {service_name} has been restarted successfully.",
+                    QMessageBox.Ok
+                )
+            else:
+                # Check if user cancelled
+                if result.returncode == 126:
+                    # User cancelled authentication
+                    return
+                QMessageBox.warning(
+                    None,
+                    "Restart Failed",
+                    f"Failed to restart the service.\n\nError: {result.stderr or result.stdout or 'Unknown error'}",
+                    QMessageBox.Ok
+                )
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(
+                None,
+                "Timeout",
+                "The restart operation timed out.",
+                QMessageBox.Ok
+            )
+        except FileNotFoundError:
+            # pkexec not available, try with terminal
+            QMessageBox.warning(
+                None,
+                "pkexec Not Found",
+                "Could not find pkexec for graphical sudo.\n\n"
+                "Please restart the service manually:\n"
+                "sudo systemctl restart thermalright-lcd-control.service",
+                QMessageBox.Ok
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                None,
+                "Error",
+                f"An error occurred:\n{str(e)}",
+                QMessageBox.Ok
+            )
 
     def update_color_button(self):
         """Update color button appearance"""

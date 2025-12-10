@@ -115,7 +115,9 @@ class DisplayGenerator:
         convert = result.convert('RGB')
 
         # Apply rotation if configured and requested
-        if apply_rotation:
+        # For 90/270 degree rotation, the image dimensions were already swapped during generation
+        # (handled by frame_manager), so we rotate back to native dimensions for hardware encoding
+        if apply_rotation and self.config.rotation != 0:
             if self.config.rotation == 90:
                 convert = convert.transpose(Image.ROTATE_270)  # PIL rotation is counter-clockwise
             elif self.config.rotation == 180:

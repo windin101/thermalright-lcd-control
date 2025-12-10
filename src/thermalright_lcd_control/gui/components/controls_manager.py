@@ -56,6 +56,13 @@ class ControlsManager:
         self.bar_bg_color_btns = {}
         self.bar_border_color_btns = {}
         self.bar_corner_radius_spins = {}
+        self.bar_gradient_checkboxes = {}  # Gradient enable checkboxes
+        self.bar_gradient_rows = {}  # Gradient settings rows (hidden when disabled)
+        self.bar_gradient_mid_spins = {}  # Medium threshold spinboxes
+        self.bar_gradient_high_spins = {}  # High threshold spinboxes
+        self.bar_gradient_low_color_btns = {}  # Low color buttons
+        self.bar_gradient_mid_color_btns = {}  # Medium color buttons
+        self.bar_gradient_high_color_btns = {}  # High color buttons
         
         # Circular graph widget controls
         self.arc_checkboxes = {}
@@ -67,6 +74,13 @@ class ControlsManager:
         self.arc_fill_color_btns = {}
         self.arc_bg_color_btns = {}
         self.arc_border_color_btns = {}
+        self.arc_gradient_checkboxes = {}  # Gradient enable checkboxes
+        self.arc_gradient_rows = {}  # Gradient settings rows (hidden when disabled)
+        self.arc_gradient_mid_spins = {}  # Medium threshold spinboxes
+        self.arc_gradient_high_spins = {}  # High threshold spinboxes
+        self.arc_gradient_low_color_btns = {}  # Low color buttons
+        self.arc_gradient_mid_color_btns = {}  # Medium color buttons
+        self.arc_gradient_high_color_btns = {}  # High color buttons
         
         # Background scaling control
         self.background_enabled_checkbox = None
@@ -864,6 +878,9 @@ class ControlsManager:
             bar_name = f"bar{i}"
             bar_row = self._create_bar_graph_row(bar_name, i)
             bar_layout.addLayout(bar_row)
+            # Add gradient settings row (initially hidden)
+            gradient_row = self._create_bar_gradient_row(bar_name)
+            bar_layout.addLayout(gradient_row)
         
         overlay_layout.addWidget(bar_group)
         
@@ -877,6 +894,9 @@ class ControlsManager:
             arc_name = f"arc{i}"
             arc_row = self._create_circular_graph_row(arc_name, i)
             arc_layout.addLayout(arc_row)
+            # Add gradient settings row (initially hidden)
+            gradient_row = self._create_arc_gradient_row(arc_name)
+            arc_layout.addLayout(gradient_row)
         
         overlay_layout.addWidget(arc_group)
         
@@ -1171,8 +1191,97 @@ class ControlsManager:
         self.bar_border_color_btns[bar_name] = border_btn
         row.addWidget(border_btn, alignment=Qt.AlignVCenter)
         
+        # Gradient checkbox
+        gradient_cb = QCheckBox("Gradient")
+        gradient_cb.setChecked(False)
+        gradient_cb.setToolTip("Use gradient color based on value (green → yellow → red)")
+        gradient_cb.toggled.connect(lambda checked, name=bar_name: self.parent.on_bar_gradient_toggled(name, checked))
+        self.bar_gradient_checkboxes[bar_name] = gradient_cb
+        row.addWidget(gradient_cb, alignment=Qt.AlignVCenter)
+        
         row.addStretch()
         return row
+
+    def _create_bar_gradient_row(self, bar_name: str):
+        """Create a gradient settings row for a bar graph (initially hidden)"""
+        # Container widget to allow hiding
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setSpacing(6)
+        row.setContentsMargins(50, 0, 0, 2)  # Indent to align with main row
+        
+        # Low color button (0%)
+        low_label = QLabel("Low:")
+        low_label.setFixedWidth(30)
+        row.addWidget(low_label, alignment=Qt.AlignVCenter)
+        
+        low_btn = QPushButton()
+        low_btn.setFixedWidth(50)
+        low_btn.setStyleSheet("background-color: #00FF00; border: 1px solid #888; border-radius: 3px;")
+        low_btn.setToolTip("Color at 0% (Low)")
+        low_btn.clicked.connect(lambda _, name=bar_name: self.parent.on_bar_gradient_low_color_clicked(name))
+        self.bar_gradient_low_color_btns[bar_name] = low_btn
+        row.addWidget(low_btn, alignment=Qt.AlignVCenter)
+        
+        # Medium threshold spinbox
+        mid_label = QLabel("Med @")
+        mid_label.setFixedWidth(40)
+        row.addWidget(mid_label, alignment=Qt.AlignVCenter)
+        
+        mid_spin = QSpinBox()
+        mid_spin.setRange(1, 99)
+        mid_spin.setValue(50)
+        mid_spin.setSuffix("%")
+        mid_spin.setFixedWidth(60)
+        mid_spin.setToolTip("Medium threshold percentage")
+        mid_spin.valueChanged.connect(lambda val, name=bar_name: self.parent.on_bar_gradient_mid_threshold_changed(name, val))
+        self.bar_gradient_mid_spins[bar_name] = mid_spin
+        row.addWidget(mid_spin, alignment=Qt.AlignVCenter)
+        
+        # Medium color button
+        mid_btn = QPushButton()
+        mid_btn.setFixedWidth(50)
+        mid_btn.setStyleSheet("background-color: #FFFF00; border: 1px solid #888; border-radius: 3px;")
+        mid_btn.setToolTip("Color at medium threshold")
+        mid_btn.clicked.connect(lambda _, name=bar_name: self.parent.on_bar_gradient_mid_color_clicked(name))
+        self.bar_gradient_mid_color_btns[bar_name] = mid_btn
+        row.addWidget(mid_btn, alignment=Qt.AlignVCenter)
+        
+        # High threshold spinbox
+        high_label = QLabel("High @")
+        high_label.setFixedWidth(40)
+        row.addWidget(high_label, alignment=Qt.AlignVCenter)
+        
+        high_spin = QSpinBox()
+        high_spin.setRange(1, 100)
+        high_spin.setValue(100)
+        high_spin.setSuffix("%")
+        high_spin.setFixedWidth(60)
+        high_spin.setToolTip("High threshold percentage")
+        high_spin.valueChanged.connect(lambda val, name=bar_name: self.parent.on_bar_gradient_high_threshold_changed(name, val))
+        self.bar_gradient_high_spins[bar_name] = high_spin
+        row.addWidget(high_spin, alignment=Qt.AlignVCenter)
+        
+        # High color button
+        high_btn = QPushButton()
+        high_btn.setFixedWidth(50)
+        high_btn.setStyleSheet("background-color: #FF0000; border: 1px solid #888; border-radius: 3px;")
+        high_btn.setToolTip("Color at high threshold (100%)")
+        high_btn.clicked.connect(lambda _, name=bar_name: self.parent.on_bar_gradient_high_color_clicked(name))
+        self.bar_gradient_high_color_btns[bar_name] = high_btn
+        row.addWidget(high_btn, alignment=Qt.AlignVCenter)
+        
+        row.addStretch()
+        
+        # Store container for show/hide
+        self.bar_gradient_rows[bar_name] = container
+        container.hide()  # Initially hidden
+        
+        # Return a layout that contains the container
+        wrapper = QHBoxLayout()
+        wrapper.setContentsMargins(0, 0, 0, 0)
+        wrapper.addWidget(container)
+        return wrapper
 
     def _create_circular_graph_row(self, arc_name: str, arc_num: int):
         """Create a single-row layout for a circular graph widget with all controls inline"""
@@ -1290,8 +1399,97 @@ class ControlsManager:
         self.arc_border_color_btns[arc_name] = border_btn
         row.addWidget(border_btn, alignment=Qt.AlignVCenter)
         
+        # Gradient checkbox
+        gradient_cb = QCheckBox("Gradient")
+        gradient_cb.setChecked(False)
+        gradient_cb.setToolTip("Use gradient color based on value (green → yellow → red)")
+        gradient_cb.toggled.connect(lambda checked, name=arc_name: self.parent.on_arc_gradient_toggled(name, checked))
+        self.arc_gradient_checkboxes[arc_name] = gradient_cb
+        row.addWidget(gradient_cb, alignment=Qt.AlignVCenter)
+        
         row.addStretch()
         return row
+
+    def _create_arc_gradient_row(self, arc_name: str):
+        """Create a gradient settings row for a circular graph (initially hidden)"""
+        # Container widget to allow hiding
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setSpacing(6)
+        row.setContentsMargins(50, 0, 0, 2)  # Indent to align with main row
+        
+        # Low color button (0%)
+        low_label = QLabel("Low:")
+        low_label.setFixedWidth(30)
+        row.addWidget(low_label, alignment=Qt.AlignVCenter)
+        
+        low_btn = QPushButton()
+        low_btn.setFixedWidth(50)
+        low_btn.setStyleSheet("background-color: #00FF00; border: 1px solid #888; border-radius: 3px;")
+        low_btn.setToolTip("Color at 0% (Low)")
+        low_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_gradient_low_color_clicked(name))
+        self.arc_gradient_low_color_btns[arc_name] = low_btn
+        row.addWidget(low_btn, alignment=Qt.AlignVCenter)
+        
+        # Medium threshold spinbox
+        mid_label = QLabel("Med @")
+        mid_label.setFixedWidth(40)
+        row.addWidget(mid_label, alignment=Qt.AlignVCenter)
+        
+        mid_spin = QSpinBox()
+        mid_spin.setRange(1, 99)
+        mid_spin.setValue(50)
+        mid_spin.setSuffix("%")
+        mid_spin.setFixedWidth(60)
+        mid_spin.setToolTip("Medium threshold percentage")
+        mid_spin.valueChanged.connect(lambda val, name=arc_name: self.parent.on_arc_gradient_mid_threshold_changed(name, val))
+        self.arc_gradient_mid_spins[arc_name] = mid_spin
+        row.addWidget(mid_spin, alignment=Qt.AlignVCenter)
+        
+        # Medium color button
+        mid_btn = QPushButton()
+        mid_btn.setFixedWidth(50)
+        mid_btn.setStyleSheet("background-color: #FFFF00; border: 1px solid #888; border-radius: 3px;")
+        mid_btn.setToolTip("Color at medium threshold")
+        mid_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_gradient_mid_color_clicked(name))
+        self.arc_gradient_mid_color_btns[arc_name] = mid_btn
+        row.addWidget(mid_btn, alignment=Qt.AlignVCenter)
+        
+        # High threshold spinbox
+        high_label = QLabel("High @")
+        high_label.setFixedWidth(40)
+        row.addWidget(high_label, alignment=Qt.AlignVCenter)
+        
+        high_spin = QSpinBox()
+        high_spin.setRange(1, 100)
+        high_spin.setValue(100)
+        high_spin.setSuffix("%")
+        high_spin.setFixedWidth(60)
+        high_spin.setToolTip("High threshold percentage")
+        high_spin.valueChanged.connect(lambda val, name=arc_name: self.parent.on_arc_gradient_high_threshold_changed(name, val))
+        self.arc_gradient_high_spins[arc_name] = high_spin
+        row.addWidget(high_spin, alignment=Qt.AlignVCenter)
+        
+        # High color button
+        high_btn = QPushButton()
+        high_btn.setFixedWidth(50)
+        high_btn.setStyleSheet("background-color: #FF0000; border: 1px solid #888; border-radius: 3px;")
+        high_btn.setToolTip("Color at high threshold (100%)")
+        high_btn.clicked.connect(lambda _, name=arc_name: self.parent.on_arc_gradient_high_color_clicked(name))
+        self.arc_gradient_high_color_btns[arc_name] = high_btn
+        row.addWidget(high_btn, alignment=Qt.AlignVCenter)
+        
+        row.addStretch()
+        
+        # Store container for show/hide
+        self.arc_gradient_rows[arc_name] = container
+        container.hide()  # Initially hidden
+        
+        # Return a layout that contains the container
+        wrapper = QHBoxLayout()
+        wrapper.setContentsMargins(0, 0, 0, 0)
+        wrapper.addWidget(container)
+        return wrapper
 
     def create_action_buttons(self) -> QWidget:
         """Create action buttons widget (to be placed outside scroll area)"""
@@ -1322,10 +1520,14 @@ class ControlsManager:
         actions_layout.addStretch()
         
         save_config_btn = QPushButton("Save")
+        save_config_btn.setAutoDefault(False)
+        save_config_btn.setDefault(False)
         save_config_btn.clicked.connect(self.parent.generate_config_yaml)
         save_config_btn.setFixedSize(100, 35)
 
         preview_config_btn = QPushButton("Apply")
+        preview_config_btn.setAutoDefault(False)
+        preview_config_btn.setDefault(False)
         preview_config_btn.clicked.connect(self.parent.generate_preview)
         preview_config_btn.setFixedSize(100, 35)
 

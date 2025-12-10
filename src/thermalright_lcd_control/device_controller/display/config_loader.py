@@ -82,6 +82,15 @@ class ConfigLoader:
 
     def _parse_bar_config(self, bar_data: Dict[str, Any]) -> BarGraphConfig:
         """Parse a bar graph configuration from YAML data"""
+        # Parse gradient colors if present
+        gradient_colors = None
+        if "gradient_colors" in bar_data:
+            gradient_colors = []
+            for gc in bar_data["gradient_colors"]:
+                threshold = gc["threshold"]
+                color = self._hex_to_rgba(gc["color"])
+                gradient_colors.append((threshold, color))
+        
         return BarGraphConfig(
             metric_name=bar_data["metric_name"],
             position=(
@@ -99,11 +108,22 @@ class ConfigLoader:
             corner_radius=bar_data.get("corner_radius", 0),
             min_value=bar_data.get("min_value", 0.0),
             max_value=bar_data.get("max_value", 100.0),
-            enabled=bar_data.get("enabled", True)
+            enabled=bar_data.get("enabled", True),
+            use_gradient=bar_data.get("use_gradient", False),
+            gradient_colors=gradient_colors
         )
 
     def _parse_circular_config(self, arc_data: Dict[str, Any]) -> CircularGraphConfig:
         """Parse a circular graph configuration from YAML data"""
+        # Parse gradient colors if present
+        gradient_colors = None
+        if "gradient_colors" in arc_data:
+            gradient_colors = []
+            for gc in arc_data["gradient_colors"]:
+                threshold = gc["threshold"]
+                color = self._hex_to_rgba(gc["color"])
+                gradient_colors.append((threshold, color))
+        
         return CircularGraphConfig(
             metric_name=arc_data["metric_name"],
             position=(
@@ -121,7 +141,9 @@ class ConfigLoader:
             border_width=arc_data.get("border_width", 1),
             min_value=arc_data.get("min_value", 0.0),
             max_value=arc_data.get("max_value", 100.0),
-            enabled=arc_data.get("enabled", True)
+            enabled=arc_data.get("enabled", True),
+            use_gradient=arc_data.get("use_gradient", False),
+            gradient_colors=gradient_colors
         )
 
     def _parse_date_config(self, date_data: Dict[str, Any]) -> DateConfig:

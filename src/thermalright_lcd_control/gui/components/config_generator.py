@@ -161,7 +161,9 @@ class ConfigGenerator:
                             "border_width": widget.get_border_width(),
                             "corner_radius": widget.get_corner_radius(),
                             "min_value": widget.get_min_value(),
-                            "max_value": widget.get_max_value()
+                            "max_value": widget.get_max_value(),
+                            "use_gradient": widget.get_use_gradient(),
+                            "gradient_colors": self._convert_gradient_colors(widget.get_gradient_colors())
                         }
                         config_data["display"]["bar_graphs"].append(bar_config)
 
@@ -186,7 +188,9 @@ class ConfigGenerator:
                             "show_border": widget.get_show_border(),
                             "border_width": widget.get_border_width(),
                             "min_value": widget.get_min_value(),
-                            "max_value": widget.get_max_value()
+                            "max_value": widget.get_max_value(),
+                            "use_gradient": widget.get_use_gradient(),
+                            "gradient_colors": self._convert_gradient_colors(widget.get_gradient_colors())
                         }
                         config_data["display"]["circular_graphs"].append(arc_config)
 
@@ -198,14 +202,16 @@ class ConfigGenerator:
 
     def generate_config_yaml(self, preview_manager, text_style, metric_widgets,
                              date_widget, time_widget, text_widgets=None, bar_widgets=None,
-                             arc_widgets=None, preview: bool = False, existing_path: str = None) -> Optional[str]:
+                             arc_widgets=None, preview: bool = False, existing_path: str = None,
+                             theme_name: str = None) -> Optional[str]:
         """Generate YAML configuration file based on current preview state
         
         Args:
             existing_path: If provided, update this file instead of creating new one
+            theme_name: If provided, use this as the theme filename (for new themes)
         """
         try:
-            self.logger.debug(f"generate_config_yaml called with preview={preview}, existing_path={existing_path}")
+            self.logger.info(f"generate_config_yaml: preview={preview}, existing_path={existing_path}, theme_name='{theme_name}'")
             config_data = self.generate_config_data(preview_manager, text_style, metric_widgets, date_widget,
                                                     time_widget, text_widgets, bar_widgets, arc_widgets)
 
@@ -221,7 +227,8 @@ class ConfigGenerator:
                     config_path = Path(existing_path)
                 else:
                     config_path = self._get_new_config_file_path(preview_manager.device_width,
-                                                                 preview_manager.device_height)
+                                                                 preview_manager.device_height,
+                                                                 theme_name=theme_name)
                 self.logger.debug(f"Saving theme config to: {config_path}")
                 self._save_config_file(config_path, config_data)
                 return f"{config_path.absolute()}"
@@ -272,14 +279,64 @@ class ConfigGenerator:
         r, g, b, a = qcolor.getRgb()
         return f"#{r:02X}{g:02X}{b:02X}{a:02X}"
 
-    def _get_new_config_file_path(self, dev_width, dev_height) -> Path:
-        """Generate new configuration file name and path based on current timestamp"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"config_{timestamp}.yaml"
+    def _convert_gradient_colors(self, gradient_colors):
+        """Convert gradient colors list to YAML-serializable format
+        
+        Args:
+            gradient_colors: List of (threshold, (r, g, b, a)) tuples
+        
+        Returns:
+            List of dicts with 'threshold' and 'color' keys
+        """
+        if not gradient_colors:
+            return []
+        result = []
+        for threshold, color in gradient_colors:
+            r, g, b = color[0], color[1], color[2]
+            a = color[3] if len(color) > 3 else 255
+            result.append({
+                "threshold": threshold,
+                "color": f"#{r:02X}{g:02X}{b:02X}{a:02X}"
+            })
+        return result
+
+    def _get_new_config_file_path(self, dev_width, dev_height, theme_name: str = None) -> Path:
+        """Generate new configuration file name and path
+        
+        Args:
+            theme_name: If provided, use this as the filename (sanitized). Otherwise use timestamp.
+        """
+        self.logger.info(f"_get_new_config_file_path called with theme_name='{theme_name}'")
+        
+        if theme_name:
+            # Sanitize the theme name for use as filename
+            import re
+            # Replace spaces with underscores, remove invalid chars
+            safe_name = re.sub(r'[^\w\s-]', '', theme_name).strip()
+            safe_name = re.sub(r'[-\s]+', '_', safe_name)
+            if not safe_name:
+                safe_name = "theme"
+            filename = f"{safe_name}.yaml"
+            self.logger.info(f"Using theme name: {theme_name} -> filename: {filename}")
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"config_{timestamp}.yaml"
+        
         themes_dir = Path(f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{dev_width}{dev_height}")
         # Ensure the themes directory exists
         themes_dir.mkdir(parents=True, exist_ok=True)
-        return themes_dir / filename
+        
+        # If file exists, append a number
+        final_path = themes_dir / filename
+        if final_path.exists() and theme_name:
+            counter = 1
+            base_name = filename.rsplit('.', 1)[0]
+            while final_path.exists():
+                filename = f"{base_name}_{counter}.yaml"
+                final_path = themes_dir / filename
+                counter += 1
+        
+        return final_path
 
     def _get_service_config_file_path(self, dev_width, dev_height) -> Optional[Path]:
         try:

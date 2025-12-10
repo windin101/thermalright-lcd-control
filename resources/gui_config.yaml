@@ -7,8 +7,15 @@ paths:
   foregrounds_dir: "./resources/themes/foregrounds"
   service_config: "./resources/config"
 
+# Startup theme mode: "default", "random", or "last_modified"
+# - default: Load the theme specified in default_theme
+# - random: Load a random theme from the themes folder
+# - last_modified: Load the most recently modified theme
+startup_theme_mode: "default"
+
 # Default theme to load on startup (filename only, e.g., "config_1.yaml")
-# If not set or file not found, loads most recently modified theme
+# Only used when startup_theme_mode is "default"
+# If file not found, falls back to last_modified behavior
 default_theme: "config_1.yaml"
 
 window:

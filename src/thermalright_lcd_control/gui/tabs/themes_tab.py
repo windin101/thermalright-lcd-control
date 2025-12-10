@@ -12,10 +12,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QScrollArea, QGridLayout, QPushButton, QMessageBox,
-                               QSpacerItem, QSizePolicy)
+                               QSpacerItem, QSizePolicy, QComboBox)
 
 from thermalright_lcd_control.gui.widgets.thumbnail_widget import ThumbnailWidget
 from thermalright_lcd_control.common.logging_config import get_gui_logger
+import random
+
 from thermalright_lcd_control.device_controller.display.config_loader import ConfigLoader
 from thermalright_lcd_control.device_controller.display.generator import DisplayGenerator
 
@@ -26,10 +28,11 @@ class ThemesTab(QWidget):
     theme_selected = Signal(str)  # Signal emitted with selected theme path
     new_theme_requested = Signal()  # Signal emitted when New Theme button is clicked
 
-    def __init__(self, themes_dir: str, dev_width: int, dev_height: int):
+    def __init__(self, themes_dir: str, dev_width: int, dev_height: int, config: dict = None):
         super().__init__()
 
         self.logger = get_gui_logger()
+        self.config = config or {}
         # Use absolute path if provided, otherwise resolve relative to cwd
         themes_path = Path(themes_dir)
         if themes_path.is_absolute():
@@ -70,6 +73,34 @@ class ThemesTab(QWidget):
         header_layout.addWidget(open_folder_btn)
         header_layout.addWidget(refresh_btn)
         header_layout.addStretch()
+        
+        # Startup mode controls
+        startup_label = QLabel("Startup:")
+        header_layout.addWidget(startup_label)
+        
+        self.startup_mode_combo = QComboBox()
+        self.startup_mode_combo.addItem("Default Theme", "default")
+        self.startup_mode_combo.addItem("Random Theme", "random")
+        self.startup_mode_combo.addItem("Last Modified", "last_modified")
+        self.startup_mode_combo.setFixedWidth(120)
+        self.startup_mode_combo.setToolTip("Choose which theme to load when the app starts")
+        # Set current value from config
+        current_mode = self.config.get('startup_theme_mode', 'default')
+        index = self.startup_mode_combo.findData(current_mode)
+        if index >= 0:
+            self.startup_mode_combo.setCurrentIndex(index)
+        self.startup_mode_combo.currentIndexChanged.connect(self.on_startup_mode_changed)
+        header_layout.addWidget(self.startup_mode_combo)
+        
+        # Default theme selector (only visible when mode is 'default')
+        self.default_theme_combo = QComboBox()
+        self.default_theme_combo.setFixedWidth(150)
+        self.default_theme_combo.setToolTip("Select the default theme to load on startup")
+        self.default_theme_combo.currentTextChanged.connect(self.on_default_theme_changed)
+        header_layout.addWidget(self.default_theme_combo)
+        
+        # Show/hide default theme combo based on mode
+        self.default_theme_combo.setVisible(current_mode == 'default')
 
         main_layout.addLayout(header_layout)
 
@@ -114,6 +145,9 @@ class ThemesTab(QWidget):
 
         # Sort by modification date (most recent first)
         yaml_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        
+        # Populate the default theme combo
+        self._populate_default_theme_combo(yaml_files)
 
         # Create thumbnails
         row, col = 0, 0
@@ -263,7 +297,81 @@ class ThemesTab(QWidget):
 
     def on_new_theme_clicked(self):
         """Handle New Theme button click"""
+        self.logger.info("on_new_theme_clicked - emitting new_theme_requested signal")
         self.new_theme_requested.emit()
+
+    def on_startup_mode_changed(self, index):
+        """Handle startup mode combo change"""
+        mode = self.startup_mode_combo.currentData()
+        self.config['startup_theme_mode'] = mode
+        self._save_gui_config()
+        
+        # Show/hide default theme combo based on mode
+        self.default_theme_combo.setVisible(mode == 'default')
+        self.logger.info(f"Startup theme mode changed to: {mode}")
+
+    def on_default_theme_changed(self, theme_name):
+        """Handle default theme combo change"""
+        if theme_name:
+            # Find the actual filename
+            for i in range(self.default_theme_combo.count()):
+                if self.default_theme_combo.itemText(i) == theme_name:
+                    filename = self.default_theme_combo.itemData(i)
+                    if filename:
+                        self.config['default_theme'] = filename
+                        self._save_gui_config()
+                        self.logger.info(f"Default theme set to: {filename}")
+                    break
+
+    def _save_gui_config(self):
+        """Save the GUI config file with updated settings"""
+        import yaml
+        try:
+            # Find the config file path
+            config_path = Path("./resources/gui_config.yaml")
+            if not config_path.exists():
+                # Try alternate location
+                config_path = Path.cwd() / "resources" / "gui_config.yaml"
+            
+            if config_path.exists():
+                # Read existing config
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_config = yaml.safe_load(f) or {}
+                
+                # Update with new values
+                existing_config['startup_theme_mode'] = self.config.get('startup_theme_mode', 'default')
+                existing_config['default_theme'] = self.config.get('default_theme', '')
+                
+                # Write back
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(existing_config, f, default_flow_style=False, allow_unicode=True, indent=2)
+                
+                self.logger.debug(f"Saved GUI config to {config_path}")
+            else:
+                self.logger.warning(f"GUI config file not found at {config_path}")
+        except Exception as e:
+            self.logger.error(f"Error saving GUI config: {e}")
+
+    def _populate_default_theme_combo(self, yaml_files):
+        """Populate the default theme combo with available themes"""
+        self.default_theme_combo.blockSignals(True)
+        self.default_theme_combo.clear()
+        
+        current_default = self.config.get('default_theme', '')
+        selected_index = 0
+        
+        for i, yaml_file in enumerate(yaml_files):
+            display_name = self.get_theme_display_name(yaml_file)
+            filename = yaml_file.name
+            self.default_theme_combo.addItem(display_name, filename)
+            
+            if filename == current_default:
+                selected_index = i
+        
+        if self.default_theme_combo.count() > 0:
+            self.default_theme_combo.setCurrentIndex(selected_index)
+        
+        self.default_theme_combo.blockSignals(False)
 
     def on_open_folder_clicked(self):
         """Open the themes folder in the system file manager"""
@@ -346,30 +454,98 @@ class ThemesTab(QWidget):
         self.theme_selected.emit(theme_path)
 
     def delete_theme(self, theme_path: str, theme_name: str):
-        """Delete a theme file after confirmation"""
-        reply = QMessageBox.question(
-            self,
-            "Delete Theme",
-            f"Are you sure you want to delete the theme '{theme_name}'?\n\nThis action cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        """Delete a theme file after confirmation, with option to delete associated media"""
+        import yaml
         
-        if reply == QMessageBox.Yes:
-            try:
-                theme_file = Path(theme_path)
-                if theme_file.exists():
-                    theme_file.unlink()
-                    self.logger.info(f"Deleted theme: {theme_path}")
-                    self.refresh_themes()
-                else:
-                    QMessageBox.warning(self, "Error", "Theme file not found.")
-            except Exception as e:
-                self.logger.error(f"Error deleting theme {theme_path}: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to delete theme:\n{str(e)}")
+        # First, extract media paths from the theme
+        media_files = []
+        try:
+            with open(theme_path, 'r', encoding='utf-8') as f:
+                theme_config = yaml.safe_load(f)
+            
+            display_config = theme_config.get('display', {})
+            
+            # Get background path
+            background_config = display_config.get('background', {})
+            bg_path = background_config.get('path')
+            if bg_path and os.path.exists(bg_path):
+                media_files.append(('Background', bg_path))
+            
+            # Get foreground path
+            foreground_config = display_config.get('foreground', {})
+            fg_path = foreground_config.get('path')
+            if fg_path:
+                # Handle resolution placeholder
+                fg_path = fg_path.replace('{resolution}', f'{self.dev_width}{self.dev_height}')
+                if os.path.exists(fg_path):
+                    media_files.append(('Foreground', fg_path))
+        except Exception as e:
+            self.logger.error(f"Error reading theme media paths: {e}")
+        
+        # Build the confirmation message
+        if media_files:
+            media_list = "\n".join([f"  • {name}: {os.path.basename(path)}" for name, path in media_files])
+            message = (f"Are you sure you want to delete the theme '{theme_name}'?\n\n"
+                      f"This theme uses the following media files:\n{media_list}\n\n"
+                      f"What would you like to do?")
+            
+            # Create custom dialog with three options
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Delete Theme")
+            msg_box.setText(message)
+            msg_box.setIcon(QMessageBox.Question)
+            
+            delete_all_btn = msg_box.addButton("Delete Theme && Media", QMessageBox.DestructiveRole)
+            delete_theme_btn = msg_box.addButton("Delete Theme Only", QMessageBox.AcceptRole)
+            cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(cancel_btn)
+            
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            
+            if clicked == cancel_btn:
+                return
+            
+            delete_media = (clicked == delete_all_btn)
+        else:
+            # No media files, simple confirmation
+            reply = QMessageBox.question(
+                self,
+                "Delete Theme",
+                f"Are you sure you want to delete the theme '{theme_name}'?\n\nThis action cannot be undone.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+            delete_media = False
+        
+        # Delete the theme file
+        try:
+            theme_file = Path(theme_path)
+            if theme_file.exists():
+                theme_file.unlink()
+                self.logger.info(f"Deleted theme: {theme_path}")
+                
+                # Delete media files if requested
+                if delete_media and media_files:
+                    for media_name, media_path in media_files:
+                        try:
+                            if os.path.exists(media_path):
+                                os.remove(media_path)
+                                self.logger.info(f"Deleted {media_name.lower()}: {media_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error deleting {media_name.lower()} {media_path}: {e}")
+                
+                self.refresh_themes()
+            else:
+                QMessageBox.warning(self, "Error", "Theme file not found.")
+        except Exception as e:
+            self.logger.error(f"Error deleting theme {theme_path}: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to delete theme:\n{str(e)}")
 
     def get_first_theme_path(self) -> str:
-        """Get the path of the first available theme"""
+        """Get the path of the first available theme (most recently modified)"""
         try:
             if not self.themes_dir.exists():
                 return ""
@@ -391,11 +567,56 @@ class ThemesTab(QWidget):
             self.logger.error(f"Error getting first theme path: {e}")
             return ""
 
+    def get_startup_theme_path(self) -> str:
+        """Get the theme path to load on startup based on config settings"""
+        try:
+            if not self.themes_dir.exists():
+                return ""
+
+            # Find all YAML files
+            yaml_files = []
+            for pattern in ['*.yaml', '*.yml']:
+                yaml_files.extend(self.themes_dir.glob(pattern))
+
+            if not yaml_files:
+                return ""
+
+            # Get startup mode from config
+            startup_mode = self.config.get('startup_theme_mode', 'default')
+            self.logger.debug(f"Startup theme mode: {startup_mode}")
+
+            if startup_mode == 'random':
+                # Pick a random theme
+                selected = random.choice(yaml_files)
+                self.logger.info(f"Random theme selected: {selected.name}")
+                return str(selected)
+
+            elif startup_mode == 'default':
+                # Try to load the specified default theme
+                default_theme = self.config.get('default_theme', '')
+                if default_theme:
+                    default_path = self.themes_dir / default_theme
+                    if default_path.exists():
+                        self.logger.info(f"Loading default theme: {default_theme}")
+                        return str(default_path)
+                    else:
+                        self.logger.warning(f"Default theme not found: {default_theme}, falling back to last modified")
+                # Fall through to last_modified behavior
+
+            # Default: last_modified - sort by modification date
+            yaml_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+            self.logger.info(f"Loading last modified theme: {yaml_files[0].name}")
+            return str(yaml_files[0])
+
+        except Exception as e:
+            self.logger.error(f"Error getting startup theme path: {e}")
+            return ""
+
     def auto_load_first_theme(self):
-        """Automatically load and emit the first available theme"""
-        first_theme_path = self.get_first_theme_path()
-        if first_theme_path:
-            self.theme_selected.emit(first_theme_path)
+        """Automatically load theme based on startup mode setting"""
+        theme_path = self.get_startup_theme_path()
+        if theme_path:
+            self.theme_selected.emit(theme_path)
             return True
         return False
 

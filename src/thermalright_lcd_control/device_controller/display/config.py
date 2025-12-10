@@ -130,6 +130,12 @@ class BarGraphConfig:
     background_color: Tuple[int, int, int, int] = (50, 50, 50, 255)  # Dark gray
     border_color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # White border
     
+    # Gradient color mode - list of (threshold, (r, g, b, a)) tuples
+    # Thresholds are 0-100 percentages
+    use_gradient: bool = False  # Enable threshold-based color gradient
+    gradient_colors: Optional[List[Tuple[float, Tuple[int, int, int, int]]]] = None
+    # Default gradient when enabled: green (0%) -> yellow (50%) -> red (100%)
+    
     # Style options
     show_border: bool = True
     border_width: int = 1
@@ -140,6 +146,15 @@ class BarGraphConfig:
     max_value: float = 100.0
     
     enabled: bool = True
+    
+    def __post_init__(self):
+        """Initialize default gradient colors if not provided"""
+        if self.gradient_colors is None:
+            self.gradient_colors = [
+                (0, (0, 255, 0, 255)),      # Green at 0%
+                (50, (255, 255, 0, 255)),   # Yellow at 50%
+                (100, (255, 0, 0, 255))     # Red at 100%
+            ]
 
 
 @dataclass
@@ -157,6 +172,12 @@ class CircularGraphConfig:
     background_color: Tuple[int, int, int, int] = (50, 50, 50, 255)  # Dark gray
     border_color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # White border
     
+    # Gradient color mode - list of (threshold, (r, g, b, a)) tuples
+    # Thresholds are 0-100 percentages
+    use_gradient: bool = False  # Enable threshold-based color gradient
+    gradient_colors: Optional[List[Tuple[float, Tuple[int, int, int, int]]]] = None
+    # Default gradient when enabled: green (0%) -> yellow (50%) -> red (100%)
+    
     # Style options
     show_border: bool = False
     border_width: int = 1
@@ -166,6 +187,15 @@ class CircularGraphConfig:
     max_value: float = 100.0
     
     enabled: bool = True
+    
+    def __post_init__(self):
+        """Initialize default gradient colors if not provided"""
+        if self.gradient_colors is None:
+            self.gradient_colors = [
+                (0, (0, 255, 0, 255)),      # Green at 0%
+                (50, (255, 255, 0, 255)),   # Yellow at 50%
+                (100, (255, 0, 0, 255))     # Red at 100%
+            ]
 
 
 @dataclass

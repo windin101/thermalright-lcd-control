@@ -3,6 +3,7 @@
 
 """Main window for Media Preview application"""
 import math
+import threading
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal
@@ -13,7 +14,103 @@ from thermalright_lcd_control.device_controller.display.utils import _get_defaul
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
 
-# Shared metrics instances for widget value updates
+# Shared metrics cache for non-blocking widget updates
+class _MetricsCache:
+    """Thread-safe metrics cache with background updates.
+    
+    This prevents blocking the GUI thread when fetching metrics
+    from subprocess calls (nvidia-smi, etc.) which can take seconds.
+    """
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        
+        self._cpu_metrics = None
+        self._gpu_metrics = None
+        self._cached_values = {}
+        self._update_thread = None
+        self._running = False
+        self._data_lock = threading.Lock()
+    
+    def start(self):
+        """Start background metrics updates"""
+        if self._running:
+            return
+        self._running = True
+        # Do immediate first update in background thread
+        threading.Thread(target=self._update_metrics, daemon=True).start()
+    
+    def stop(self):
+        """Stop background metrics updates"""
+        self._running = False
+        if self._update_thread:
+            self._update_thread.cancel()
+            self._update_thread = None
+    
+    def _schedule_update(self):
+        """Schedule next update"""
+        if self._running:
+            self._update_thread = threading.Timer(1.0, self._update_metrics)
+            self._update_thread.daemon = True
+            self._update_thread.start()
+    
+    def _update_metrics(self):
+        """Update metrics in background thread"""
+        try:
+            # Lazy init metrics instances in background thread
+            if self._cpu_metrics is None:
+                self._cpu_metrics = CpuMetrics()
+            if self._gpu_metrics is None:
+                self._gpu_metrics = GpuMetrics()
+            
+            # Fetch values (these may block on subprocess calls)
+            new_values = {
+                'cpu_usage': self._cpu_metrics.get_usage_percentage() or 0,
+                'cpu_temperature': self._cpu_metrics.get_temperature() or 0,
+                'ram_percent': self._cpu_metrics.get_ram_percent() or 0,
+                'gpu_usage': self._gpu_metrics.get_usage_percentage() or 0,
+                'gpu_temperature': self._gpu_metrics.get_temperature() or 0,
+                'gpu_mem_percent': self._gpu_metrics.get_memory_percent() or 0,
+            }
+            
+            # Thread-safe update of cached values
+            with self._data_lock:
+                self._cached_values = new_values
+        except Exception:
+            pass
+        finally:
+            # Schedule next update
+            self._schedule_update()
+    
+    def get_value(self, metric_name: str) -> float:
+        """Get cached metric value (non-blocking)"""
+        with self._data_lock:
+            return self._cached_values.get(metric_name, 0)
+
+# Global metrics cache instance
+_metrics_cache = None
+
+def _get_metrics_cache():
+    """Get or create the shared metrics cache"""
+    global _metrics_cache
+    if _metrics_cache is None:
+        _metrics_cache = _MetricsCache()
+        _metrics_cache.start()
+    return _metrics_cache
+
+# Legacy functions for backward compatibility
 _cpu_metrics_instance = None
 _gpu_metrics_instance = None
 
@@ -30,6 +127,60 @@ def _get_gpu_metrics():
     if _gpu_metrics_instance is None:
         _gpu_metrics_instance = GpuMetrics()
     return _gpu_metrics_instance
+
+
+def _interpolate_gradient_color(normalized_value: float, gradient_colors: list) -> QColor:
+    """
+    Interpolate color based on normalized value (0-1) and gradient thresholds.
+    
+    Args:
+        normalized_value: Value between 0 and 1
+        gradient_colors: List of (threshold, (r, g, b, a)) tuples, sorted by threshold
+                        Thresholds are 0-100 percentages
+    
+    Returns:
+        Interpolated QColor
+    """
+    if not gradient_colors or len(gradient_colors) < 2:
+        return QColor(0, 255, 0, 255)  # Default green
+    
+    # Convert normalized (0-1) to percentage (0-100)
+    percent = normalized_value * 100.0
+    
+    # Find the two colors to interpolate between
+    lower_color = gradient_colors[0]
+    upper_color = gradient_colors[-1]
+    
+    for i, (threshold, color) in enumerate(gradient_colors):
+        if percent <= threshold:
+            upper_color = (threshold, color)
+            if i > 0:
+                lower_color = gradient_colors[i - 1]
+            else:
+                lower_color = (threshold, color)
+            break
+        lower_color = (threshold, color)
+    
+    # If same threshold, return the color directly
+    if lower_color[0] == upper_color[0]:
+        c = lower_color[1]
+        return QColor(c[0], c[1], c[2], c[3] if len(c) > 3 else 255)
+    
+    # Linear interpolation between the two colors
+    t = (percent - lower_color[0]) / (upper_color[0] - lower_color[0])
+    t = max(0.0, min(1.0, t))
+    
+    r1, g1, b1 = lower_color[1][0], lower_color[1][1], lower_color[1][2]
+    a1 = lower_color[1][3] if len(lower_color[1]) > 3 else 255
+    r2, g2, b2 = upper_color[1][0], upper_color[1][1], upper_color[1][2]
+    a2 = upper_color[1][3] if len(upper_color[1]) > 3 else 255
+    
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+    a = int(a1 + (a2 - a1) * t)
+    
+    return QColor(r, g, b, a)
 
 
 class GridOverlayWidget(QWidget):
@@ -902,6 +1053,7 @@ class MetricWidget(DraggableWidget):
         # Apply character limit for name metrics
         if self._char_limit > 0 and self.metric_name in ["cpu_name", "gpu_name"]:
             value = str(value)[:self._char_limit]
+            return value
         
         # Convert frequency if this is a frequency metric and format is GHz
         if 'frequency' in self.metric_name and self._freq_format == "ghz":
@@ -913,7 +1065,23 @@ class MetricWidget(DraggableWidget):
             except (ValueError, TypeError):
                 return value
         
-        return value
+        # Format based on metric type
+        try:
+            float_value = float(value)
+            # Temperature and usage - whole numbers
+            if any(x in self.metric_name for x in ['temperature', 'usage', 'percent']):
+                return f"{int(round(float_value))}"
+            # Frequency in MHz - 2 decimal places
+            elif 'frequency' in self.metric_name:
+                return f"{float_value:.2f}"
+            # RAM/VRAM total/used - 1 decimal place
+            elif self.metric_name in ['ram_total', 'ram_used', 'gpu_mem_total', 'gpu_mem_used']:
+                return f"{float_value:.1f}"
+            else:
+                # Default: whole number if no decimals, else as-is
+                return str(int(float_value)) if float_value == int(float_value) else str(value)
+        except (ValueError, TypeError):
+            return str(value)
 
     def set_freq_format(self, format_type: str):
         """Set frequency format (mhz or ghz)"""
@@ -1009,6 +1177,15 @@ class BarGraphWidget(QLabel):
         self._border_width = 1
         self._corner_radius = 0
         
+        # Gradient support
+        self._use_gradient = False
+        # Default gradient: green -> yellow -> red
+        self._gradient_colors = [
+            (0, (0, 255, 0, 255)),      # Green at 0%
+            (50, (255, 255, 0, 255)),   # Yellow at 50%
+            (100, (255, 0, 0, 255))     # Red at 100%
+        ]
+        
         # Value range
         self._min_value = 0.0
         self._max_value = 100.0
@@ -1044,27 +1221,14 @@ class BarGraphWidget(QLabel):
             self.move(x - border_padding, y - border_padding)
     
     def _update_value(self):
-        """Update the current value from metrics"""
+        """Update the current value from cached metrics (non-blocking)"""
         if not self.enabled:
             return
         
-        # Get value from metrics
+        # Get value from cached metrics (non-blocking)
         try:
-            cpu = _get_cpu_metrics()
-            gpu = _get_gpu_metrics()
-            
-            if self._metric_name == "cpu_usage":
-                self._current_value = cpu.get_usage_percentage() or 0
-            elif self._metric_name == "cpu_temperature":
-                self._current_value = cpu.get_temperature() or 0
-            elif self._metric_name == "ram_percent":
-                self._current_value = cpu.get_ram_percent() or 0
-            elif self._metric_name == "gpu_usage":
-                self._current_value = gpu.get_usage_percentage() or 0
-            elif self._metric_name == "gpu_temperature":
-                self._current_value = gpu.get_temperature() or 0
-            elif self._metric_name == "gpu_mem_percent":
-                self._current_value = gpu.get_memory_percent() or 0
+            cache = _get_metrics_cache()
+            self._current_value = cache.get_value(self._metric_name)
         except:
             pass
         
@@ -1132,8 +1296,14 @@ class BarGraphWidget(QLabel):
         else:
             painter.drawRect(bar_x, bar_y, self._width, self._height)
         
+        # Determine fill color (use gradient if enabled)
+        if self._use_gradient and self._gradient_colors:
+            fill_color = _interpolate_gradient_color(normalized, self._gradient_colors)
+        else:
+            fill_color = self._fill_color
+        
         # Draw fill
-        painter.setBrush(self._fill_color)
+        painter.setBrush(fill_color)
         painter.setPen(Qt.NoPen)
         
         if self._orientation == "horizontal":
@@ -1294,6 +1464,21 @@ class BarGraphWidget(QLabel):
         self._max_value = value
         self.update_display()
     
+    def get_use_gradient(self) -> bool:
+        return self._use_gradient
+    
+    def set_use_gradient(self, use: bool):
+        self._use_gradient = use
+        self.update_display()
+    
+    def get_gradient_colors(self) -> list:
+        return self._gradient_colors
+    
+    def set_gradient_colors(self, colors: list):
+        """Set gradient colors as list of (threshold, (r, g, b, a)) tuples"""
+        self._gradient_colors = colors
+        self.update_display()
+    
     def get_position(self) -> tuple:
         """Get position adjusted for border padding"""
         # The widget has 4px padding for selection border, 
@@ -1337,6 +1522,15 @@ class CircularGraphWidget(QLabel):
         self._show_border = False
         self._border_width = 1
         
+        # Gradient support
+        self._use_gradient = False
+        # Default gradient: green -> yellow -> red
+        self._gradient_colors = [
+            (0, (0, 255, 0, 255)),      # Green at 0%
+            (50, (255, 255, 0, 255)),   # Yellow at 50%
+            (100, (255, 0, 0, 255))     # Red at 100%
+        ]
+        
         # Value range
         self._min_value = 0.0
         self._max_value = 100.0
@@ -1367,26 +1561,13 @@ class CircularGraphWidget(QLabel):
             self.move(x - self._radius - border_padding, y - self._radius - border_padding)
     
     def _update_value(self):
-        """Update the current value from metrics"""
+        """Update the current value from cached metrics (non-blocking)"""
         if not self.enabled:
             return
         
         try:
-            cpu = _get_cpu_metrics()
-            gpu = _get_gpu_metrics()
-            
-            if self._metric_name == "cpu_usage":
-                self._current_value = cpu.get_usage_percentage() or 0
-            elif self._metric_name == "cpu_temperature":
-                self._current_value = cpu.get_temperature() or 0
-            elif self._metric_name == "ram_percent":
-                self._current_value = cpu.get_ram_percent() or 0
-            elif self._metric_name == "gpu_usage":
-                self._current_value = gpu.get_usage_percentage() or 0
-            elif self._metric_name == "gpu_temperature":
-                self._current_value = gpu.get_temperature() or 0
-            elif self._metric_name == "gpu_mem_percent":
-                self._current_value = gpu.get_memory_percent() or 0
+            cache = _get_metrics_cache()
+            self._current_value = cache.get_value(self._metric_name)
         except:
             pass
         
@@ -1456,7 +1637,13 @@ class CircularGraphWidget(QLabel):
         
         # Draw filled arc
         if normalized > 0:
-            pen = QPen(self._fill_color)
+            # Determine fill color (use gradient if enabled)
+            if self._use_gradient and self._gradient_colors:
+                fill_color = _interpolate_gradient_color(normalized, self._gradient_colors)
+            else:
+                fill_color = self._fill_color
+            
+            pen = QPen(fill_color)
             pen.setWidth(self._thickness)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
@@ -1618,6 +1805,21 @@ class CircularGraphWidget(QLabel):
     
     def set_max_value(self, value: float):
         self._max_value = value
+        self.update_display()
+    
+    def get_use_gradient(self) -> bool:
+        return self._use_gradient
+    
+    def set_use_gradient(self, use: bool):
+        self._use_gradient = use
+        self.update_display()
+    
+    def get_gradient_colors(self) -> list:
+        return self._gradient_colors
+    
+    def set_gradient_colors(self, colors: list):
+        """Set gradient colors as list of (threshold, (r, g, b, a)) tuples"""
+        self._gradient_colors = colors
         self.update_display()
     
     def get_position(self) -> tuple:

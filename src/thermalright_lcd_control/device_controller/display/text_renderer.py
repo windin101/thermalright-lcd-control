@@ -2,7 +2,7 @@
 # Copyright © 2025 Rejeb Ben Rejeb
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from PIL import ImageDraw, ImageFont, ImageFilter, Image
 
@@ -21,6 +21,60 @@ except ImportError:
 
     def get_font_manager():
         return FallbackFontManager()
+
+
+def _interpolate_gradient_color(normalized_value: float, gradient_colors: List[Tuple[float, Tuple[int, int, int, int]]]) -> Tuple[int, int, int, int]:
+    """
+    Interpolate color based on normalized value (0-1) and gradient thresholds.
+    
+    Args:
+        normalized_value: Value between 0 and 1
+        gradient_colors: List of (threshold, (r, g, b, a)) tuples, sorted by threshold
+                        Thresholds are 0-100 percentages
+    
+    Returns:
+        Interpolated (r, g, b, a) tuple
+    """
+    if not gradient_colors or len(gradient_colors) < 2:
+        return (0, 255, 0, 255)  # Default green
+    
+    # Convert normalized (0-1) to percentage (0-100)
+    percent = normalized_value * 100.0
+    
+    # Find the two colors to interpolate between
+    lower_color = gradient_colors[0]
+    upper_color = gradient_colors[-1]
+    
+    for i, (threshold, color) in enumerate(gradient_colors):
+        if percent <= threshold:
+            upper_color = (threshold, color)
+            if i > 0:
+                lower_color = gradient_colors[i - 1]
+            else:
+                lower_color = (threshold, color)
+            break
+        lower_color = (threshold, color)
+    
+    # If same threshold, return the color directly
+    if lower_color[0] == upper_color[0]:
+        c = lower_color[1]
+        return (c[0], c[1], c[2], c[3] if len(c) > 3 else 255)
+    
+    # Linear interpolation between the two colors
+    t = (percent - lower_color[0]) / (upper_color[0] - lower_color[0])
+    t = max(0.0, min(1.0, t))
+    
+    r1, g1, b1 = lower_color[1][0], lower_color[1][1], lower_color[1][2]
+    a1 = lower_color[1][3] if len(lower_color[1]) > 3 else 255
+    r2, g2, b2 = upper_color[1][0], upper_color[1][1], upper_color[1][2]
+    a2 = upper_color[1][3] if len(upper_color[1]) > 3 else 255
+    
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+    a = int(a1 + (a2 - a1) * t)
+    
+    return (r, g, b, a)
 
 
 class TextRenderer:
@@ -185,17 +239,26 @@ class TextRenderer:
                 try:
                     value = float(value)
                 except ValueError:
-                    # If conversion fails, return the string as-is
+                    # If conversion fails, return the string as-is (e.g., cpu_name, gpu_name)
                     return value
 
-            # If it's already a number, format it
+            # If it's already a number, format based on metric type
             if isinstance(value, (int, float)):
+                # Temperature and usage metrics - whole numbers
+                if any(x in metric_name for x in ['temperature', 'usage', 'percent']):
+                    return f"{int(round(value))}"
+                # Frequency metrics - 2 decimal places (for MHz display)
+                elif 'frequency' in metric_name:
+                    return f"{value:.2f}"
+                # RAM/VRAM total - 1 decimal place for GB
+                elif metric_name in ['ram_total', 'ram_used', 'gpu_mem_total', 'gpu_mem_used']:
+                    return f"{value:.1f}"
                 # Check if the format string contains decimal formatting
-                if '.0f' in format_string or '.1f' in format_string or '.2f' in format_string:
+                elif '.0f' in format_string or '.1f' in format_string or '.2f' in format_string:
                     return format_string.format(value=value)
                 else:
-                    # For other format strings, convert to string first
-                    return format_string.format(value=str(value))
+                    # Default: convert to string
+                    return str(int(value)) if value == int(value) else str(value)
 
             # For any other type, convert to string
             return str(value)
@@ -406,6 +469,12 @@ class TextRenderer:
             else:
                 draw.rectangle([x, y, x + w, y + h], fill=config.background_color)
 
+            # Determine fill color (use gradient if enabled)
+            if config.use_gradient and config.gradient_colors:
+                fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+            else:
+                fill_color = config.fill_color
+
             # Draw filled portion
             if normalized > 0:
                 if config.orientation == "horizontal":
@@ -415,9 +484,9 @@ class TextRenderer:
                             # For rounded, we need to clip the fill
                             self._draw_rounded_rect(draw, x, y, fill_width, h, 
                                                    min(config.corner_radius, fill_width // 2), 
-                                                   config.fill_color)
+                                                   fill_color)
                         else:
-                            draw.rectangle([x, y, x + fill_width, y + h], fill=config.fill_color)
+                            draw.rectangle([x, y, x + fill_width, y + h], fill=fill_color)
                 else:  # vertical
                     fill_height = int(h * normalized)
                     if fill_height > 0:
@@ -425,9 +494,9 @@ class TextRenderer:
                         if config.corner_radius > 0:
                             self._draw_rounded_rect(draw, x, fill_y, w, fill_height,
                                                    min(config.corner_radius, fill_height // 2),
-                                                   config.fill_color)
+                                                   fill_color)
                         else:
-                            draw.rectangle([x, fill_y, x + w, y + h], fill=config.fill_color)
+                            draw.rectangle([x, fill_y, x + w, y + h], fill=fill_color)
 
             # Draw border
             if config.show_border:
@@ -529,11 +598,17 @@ class TextRenderer:
             # Draw background arc (full sweep)
             draw.arc(bbox, pil_end, pil_start, fill=config.background_color, width=thickness)
             
+            # Determine fill color (use gradient if enabled)
+            if config.use_gradient and config.gradient_colors:
+                fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+            else:
+                fill_color = config.fill_color
+            
             # Draw filled arc (proportional to value)
             if normalized > 0:
                 filled_sweep = config.sweep_angle * normalized
                 pil_filled_end = -(config.start_angle + filled_sweep)
-                draw.arc(bbox, pil_filled_end, pil_start, fill=config.fill_color, width=thickness)
+                draw.arc(bbox, pil_filled_end, pil_start, fill=fill_color, width=thickness)
             
             # Draw border arc if enabled
             if config.show_border:

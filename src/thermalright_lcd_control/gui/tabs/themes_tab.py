@@ -311,7 +311,15 @@ class ThemesTab(QWidget):
                 'cpu_usage': 25,
                 'gpu_usage': 40,
                 'cpu_frequency': 3600,
-                'gpu_frequency': 1800
+                'gpu_frequency': 1800,
+                'cpu_name': 'CPU',
+                'gpu_name': 'GPU',
+                'ram_total': 32,
+                'ram_used': 16,
+                'ram_percent': 50,
+                'gpu_mem_total': 16,
+                'gpu_mem_used': 8,
+                'gpu_mem_percent': 50
             }
             
             # Generate a frame with the sample metrics (no rotation for thumbnail)

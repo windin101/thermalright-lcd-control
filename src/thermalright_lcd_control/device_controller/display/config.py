@@ -106,6 +106,7 @@ class MetricConfig:
     enabled: bool = True
     label_position: LabelPosition = LabelPosition.LEFT
     freq_format: str = "mhz"  # Frequency format: "mhz" or "ghz"
+    char_limit: int = 0  # Character limit for name metrics (0 = no limit)
 
     def get_label_font_size(self) -> int:
         """Get label font size (individual or same as value)"""

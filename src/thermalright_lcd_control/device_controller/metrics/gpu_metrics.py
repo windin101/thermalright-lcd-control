@@ -28,6 +28,9 @@ class GpuMetrics(Metrics):
         self.gpu_freq = None
         self.gpu_vendor = None
         self.gpu_name = None
+        self.gpu_mem_total = None
+        self.gpu_mem_used = None
+        self.gpu_mem_percent = None
 
         # AMD selection state (only used when gpu_vendor == "amd")
         self.amd_card_path = None          # /sys/class/drm/cardX/device
@@ -41,6 +44,7 @@ class GpuMetrics(Metrics):
         self._usage_path_cache = None
         self._freq_path_cache = None
         self._freq_method_cache = None
+        self._mem_path_cache = None
 
         self.logger.debug("GpuMetrics initialized")
         self._detect_gpu()
@@ -231,6 +235,7 @@ class GpuMetrics(Metrics):
     # ---------- names ----------
 
     def _get_nvidia_name(self):
+        # Try nvidia-smi first (most reliable for NVIDIA)
         try:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"],
@@ -240,9 +245,47 @@ class GpuMetrics(Metrics):
                 return r.stdout.strip().splitlines()[0]
         except Exception:
             pass
+        
+        # Fallback to lspci
+        try:
+            r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=4)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "VGA" in line and "NVIDIA" in line:
+                        # Format: "01:00.0 VGA compatible controller: NVIDIA Corporation GeForce RTX 4090 (rev a1)"
+                        if "NVIDIA Corporation" in line:
+                            name_part = line.split("NVIDIA Corporation", 1)[1].strip()
+                            # Clean up revision info
+                            name_part = re.sub(r'\s*\(rev [a-f0-9]+\)\s*$', '', name_part)
+                            if name_part:
+                                return name_part
+        except Exception:
+            pass
+        
         return "NVIDIA GPU"
 
     def _get_amd_name(self):
+        # Try lspci for the best name (includes marketing name like "Radeon RX 9070")
+        if self.amd_pci_bdf:
+            try:
+                # lspci -s <bdf> gives the device name for the specific card
+                r = subprocess.run(["lspci", "-s", self.amd_pci_bdf],
+                                   capture_output=True, text=True, timeout=4)
+                if r.returncode == 0 and r.stdout.strip():
+                    # Output format: "03:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 48 [Radeon RX 9070...]"
+                    line = r.stdout.strip().splitlines()[0]
+                    # Extract the part after "[AMD/ATI]" or "AMD" 
+                    if "[AMD/ATI]" in line:
+                        name_part = line.split("[AMD/ATI]", 1)[1].strip()
+                        # Extract the bracketed marketing name if present
+                        bracket_match = re.search(r'\[([^\]]+)\]', name_part)
+                        if bracket_match:
+                            return bracket_match.group(1)
+                        # Otherwise return the architecture name (e.g., "Navi 48")
+                        return name_part.split("[")[0].strip() if "[" in name_part else name_part
+            except Exception:
+                pass
+        
         # Try rocm-smi product name
         try:
             r = subprocess.run(["rocm-smi", "--showproductname"],
@@ -253,6 +296,25 @@ class GpuMetrics(Metrics):
                         return line.split(":", 1)[1].strip()
         except Exception:
             pass
+        
+        # Fallback: try lspci without specific BDF (search for AMD VGA)
+        try:
+            r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=4)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "VGA" in line and ("AMD" in line or "ATI" in line):
+                        # Prefer discrete GPU (not on bus 00)
+                        bdf = line.split()[0]
+                        if not bdf.startswith("00:"):
+                            if "[AMD/ATI]" in line:
+                                name_part = line.split("[AMD/ATI]", 1)[1].strip()
+                                bracket_match = re.search(r'\[([^\]]+)\]', name_part)
+                                if bracket_match:
+                                    return bracket_match.group(1)
+                                return name_part.split("[")[0].strip() if "[" in name_part else name_part
+        except Exception:
+            pass
+        
         # Fallback: sysfs device id of the selected card
         dev_paths = [self.amd_card_path] if self.amd_card_path else glob.glob("/sys/class/drm/card*/device")
         for dev_path in dev_paths:
@@ -268,6 +330,21 @@ class GpuMetrics(Metrics):
         return "AMD GPU"
 
     def _get_intel_name(self):
+        # Try lspci for Intel GPU name
+        try:
+            r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=4)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "VGA" in line and "Intel" in line:
+                        # Format: "00:02.0 VGA compatible controller: Intel Corporation ..."
+                        if "Intel Corporation" in line:
+                            name_part = line.split("Intel Corporation", 1)[1].strip()
+                            # Clean up any trailing revision info
+                            name_part = re.sub(r'\s*\(rev [a-f0-9]+\)\s*$', '', name_part)
+                            if name_part:
+                                return name_part
+        except Exception:
+            pass
         return "Intel GPU"
 
     # ---------- temperatures ----------
@@ -742,18 +819,159 @@ class GpuMetrics(Metrics):
             pass
         return None
 
+    # ---------- memory ----------
+
+    def get_memory_total(self):
+        """Get total GPU memory in GB"""
+        try:
+            if self.gpu_vendor == "nvidia":
+                return self._get_nvidia_memory_total()
+            if self.gpu_vendor == "amd":
+                return self._get_amd_memory_total()
+            return None
+        except Exception as e:
+            self.logger.error(f"Error reading GPU memory total: {e}")
+            return None
+
+    def get_memory_used(self):
+        """Get used GPU memory in GB"""
+        try:
+            if self.gpu_vendor == "nvidia":
+                return self._get_nvidia_memory_used()
+            if self.gpu_vendor == "amd":
+                return self._get_amd_memory_used()
+            return None
+        except Exception as e:
+            self.logger.error(f"Error reading GPU memory used: {e}")
+            return None
+
+    def get_memory_percent(self):
+        """Get GPU memory usage percentage"""
+        try:
+            total = self.get_memory_total()
+            used = self.get_memory_used()
+            if total and used and total > 0:
+                self.gpu_mem_percent = round((used / total) * 100, 1)
+                return self.gpu_mem_percent
+            return None
+        except Exception as e:
+            self.logger.error(f"Error calculating GPU memory percentage: {e}")
+            return None
+
+    def _get_nvidia_memory_total(self):
+        """Get NVIDIA GPU total memory in GB"""
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=4
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                # nvidia-smi returns memory in MiB
+                mem_mib = float(r.stdout.strip().splitlines()[0])
+                self.gpu_mem_total = round(mem_mib / 1024, 1)  # Convert to GB
+                return self.gpu_mem_total
+        except Exception:
+            pass
+        return None
+
+    def _get_nvidia_memory_used(self):
+        """Get NVIDIA GPU used memory in GB"""
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=4
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                # nvidia-smi returns memory in MiB
+                mem_mib = float(r.stdout.strip().splitlines()[0])
+                self.gpu_mem_used = round(mem_mib / 1024, 1)  # Convert to GB
+                return self.gpu_mem_used
+        except Exception:
+            pass
+        return None
+
+    def _get_amd_memory_total(self):
+        """Get AMD GPU total memory in GB"""
+        # Try sysfs for the selected card
+        if self.amd_card_path:
+            try:
+                mem_path = os.path.join(self.amd_card_path, "mem_info_vram_total")
+                if os.path.exists(mem_path):
+                    with open(mem_path) as f:
+                        mem_bytes = int(f.read().strip())
+                        self.gpu_mem_total = round(mem_bytes / (1024 ** 3), 1)  # Convert to GB
+                        return self.gpu_mem_total
+            except Exception:
+                pass
+        
+        # Try rocm-smi
+        try:
+            r = subprocess.run(["rocm-smi", "--showmeminfo", "vram"],
+                               capture_output=True, text=True, timeout=4)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "Total Memory" in line or "VRAM Total" in line:
+                        # Parse the memory value
+                        match = re.search(r'(\d+(?:\.\d+)?)\s*(GB|MB|GiB|MiB)', line, re.IGNORECASE)
+                        if match:
+                            value = float(match.group(1))
+                            unit = match.group(2).upper()
+                            if 'M' in unit:
+                                value = value / 1024
+                            self.gpu_mem_total = round(value, 1)
+                            return self.gpu_mem_total
+        except Exception:
+            pass
+        return None
+
+    def _get_amd_memory_used(self):
+        """Get AMD GPU used memory in GB"""
+        # Try sysfs for the selected card
+        if self.amd_card_path:
+            try:
+                mem_path = os.path.join(self.amd_card_path, "mem_info_vram_used")
+                if os.path.exists(mem_path):
+                    with open(mem_path) as f:
+                        mem_bytes = int(f.read().strip())
+                        self.gpu_mem_used = round(mem_bytes / (1024 ** 3), 1)  # Convert to GB
+                        return self.gpu_mem_used
+            except Exception:
+                pass
+        
+        # Try rocm-smi
+        try:
+            r = subprocess.run(["rocm-smi", "--showmeminfo", "vram"],
+                               capture_output=True, text=True, timeout=4)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "Used Memory" in line or "VRAM Used" in line:
+                        match = re.search(r'(\d+(?:\.\d+)?)\s*(GB|MB|GiB|MiB)', line, re.IGNORECASE)
+                        if match:
+                            value = float(match.group(1))
+                            unit = match.group(2).upper()
+                            if 'M' in unit:
+                                value = value / 1024
+                            self.gpu_mem_used = round(value, 1)
+                            return self.gpu_mem_used
+        except Exception:
+            pass
+        return None
+
     # ---------- bundles ----------
 
     def get_all_metrics(self):
         self.logger.debug("Collecting all GPU metrics")
         if self.gpu_vendor is None:
-            return {'vendor': None, 'name': None, 'temperature': None, 'usage_percentage': None, 'frequency': None}
+            return {'vendor': None, 'name': None, 'temperature': None, 'usage_percentage': None, 'frequency': None, 'memory_total': None, 'memory_used': None, 'memory_percent': None}
         return {
             'vendor': self.gpu_vendor,
             'name': self.gpu_name,
             'temperature': self.get_temperature(),
             'usage_percentage': self.get_usage_percentage(),
-            'frequency': self.get_frequency()
+            'frequency': self.get_frequency(),
+            'memory_total': self.get_memory_total(),
+            'memory_used': self.get_memory_used(),
+            'memory_percent': self.get_memory_percent()
         }
 
     def get_metric_value(self, metric_name) -> str:
@@ -763,6 +981,14 @@ class GpuMetrics(Metrics):
             v = self.get_usage_percentage(); return f"{v}" if v is not None else "N/A"
         if metric_name == "gpu_frequency":
             v = self.get_frequency(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "gpu_name":
+            return self.gpu_name if self.gpu_name else "N/A"
+        if metric_name == "gpu_mem_total":
+            v = self.get_memory_total(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "gpu_mem_used":
+            v = self.get_memory_used(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "gpu_mem_percent":
+            v = self.get_memory_percent(); return f"{v}" if v is not None else "N/A"
         return "N/A"
 
     def __str__(self):

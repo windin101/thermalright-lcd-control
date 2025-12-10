@@ -116,6 +116,12 @@ class ConfigGenerator:
                     if 'frequency' in metric_name and hasattr(widget, 'get_freq_format'):
                         metric_config["freq_format"] = widget.get_freq_format()
                     
+                    # Add character limit for name metrics
+                    if metric_name in ['cpu_name', 'gpu_name'] and hasattr(widget, 'get_char_limit'):
+                        char_limit = widget.get_char_limit()
+                        if char_limit > 0:
+                            metric_config["char_limit"] = char_limit
+                    
                     config_data["display"]["metrics"]["configs"].append(metric_config)
 
             # Add custom text configurations

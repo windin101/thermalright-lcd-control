@@ -16,12 +16,20 @@ class CpuMetrics(Metrics):
         self.cpu_usage = 0.0
         self.cpu_temp = None
         self.cpu_freq = None
+        self.cpu_name = None
+        self.ram_total = None
+        self.ram_used = None
+        self.ram_percent = None
 
         # Cache to optimize performance
         self._temp_path_cache = None
         self._temp_method_cache = None
         self._freq_path_cache = None
         self._hwmon_roots_cache = None
+        self._cpu_name_cache = None
+        
+        # Initialize CPU name at startup
+        self._detect_cpu_name()
 
     # ---------- helpers ----------
     def _read_float(self, path, scale=1.0):
@@ -264,12 +272,86 @@ class CpuMetrics(Metrics):
             self.logger.error(f"Error reading CPU frequency: {e}")
         return None
 
+    # ---------- CPU name ----------
+    def _detect_cpu_name(self):
+        """Detect CPU name from /proc/cpuinfo or platform module"""
+        if self._cpu_name_cache:
+            return self._cpu_name_cache
+        
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        name = line.split(":", 1)[1].strip()
+                        # Clean up common redundant text
+                        name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
+                        self._cpu_name_cache = name
+                        self.cpu_name = name
+                        return name
+        except Exception as e:
+            self.logger.debug(f"Failed to read CPU name from /proc/cpuinfo: {e}")
+        
+        # Fallback to platform module
+        try:
+            import platform
+            name = platform.processor()
+            if name:
+                self._cpu_name_cache = name
+                self.cpu_name = name
+                return name
+        except Exception:
+            pass
+        
+        self.cpu_name = "Unknown CPU"
+        return self.cpu_name
+
+    def get_cpu_name(self):
+        """Get CPU model name"""
+        if self._cpu_name_cache:
+            return self._cpu_name_cache
+        return self._detect_cpu_name()
+
+    # ---------- RAM metrics ----------
+    def get_ram_total(self):
+        """Get total RAM in GB"""
+        try:
+            mem = psutil.virtual_memory()
+            self.ram_total = round(mem.total / (1024 ** 3), 1)  # Convert to GB
+            return self.ram_total
+        except Exception as e:
+            self.logger.error(f"Error reading RAM total: {e}")
+            return None
+
+    def get_ram_used(self):
+        """Get used RAM in GB"""
+        try:
+            mem = psutil.virtual_memory()
+            self.ram_used = round(mem.used / (1024 ** 3), 1)  # Convert to GB
+            return self.ram_used
+        except Exception as e:
+            self.logger.error(f"Error reading RAM used: {e}")
+            return None
+
+    def get_ram_percent(self):
+        """Get RAM usage percentage"""
+        try:
+            mem = psutil.virtual_memory()
+            self.ram_percent = mem.percent
+            return self.ram_percent
+        except Exception as e:
+            self.logger.error(f"Error reading RAM percentage: {e}")
+            return None
+
     # ---------- bundles ----------
     def get_all_metrics(self):
         return {
             "temperature": self.get_temperature(),
             "usage_percentage": self.get_usage_percentage(),
             "frequency": self.get_frequency(),
+            "cpu_name": self.get_cpu_name(),
+            "ram_total": self.get_ram_total(),
+            "ram_used": self.get_ram_used(),
+            "ram_percent": self.get_ram_percent(),
         }
 
     def get_metric_value(self, metric_name) -> str:
@@ -279,6 +361,14 @@ class CpuMetrics(Metrics):
             v = self.get_usage_percentage(); return f"{v}" if v is not None else "N/A"
         if metric_name == "cpu_frequency":
             v = self.get_frequency(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "cpu_name":
+            v = self.get_cpu_name(); return v if v else "N/A"
+        if metric_name == "ram_total":
+            v = self.get_ram_total(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "ram_used":
+            v = self.get_ram_used(); return f"{v}" if v is not None else "N/A"
+        if metric_name == "ram_percent":
+            v = self.get_ram_percent(); return f"{v}" if v is not None else "N/A"
         return "N/A"
 
     def __str__(self):

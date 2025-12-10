@@ -39,6 +39,7 @@ class ControlsManager:
         self.metric_font_size_spins = {}  # New: individual font size spinboxes
         self.metric_label_font_size_spins = {}  # New: label font size spinboxes
         self.metric_freq_format_combos = {}  # Frequency format (MHz/GHz) dropdowns
+        self.metric_char_limit_combos = {}  # Character limit dropdowns for name metrics
         
         # Free text widget controls
         self.text_checkboxes = {}
@@ -708,11 +709,11 @@ class ControlsManager:
 
         overlay_layout.addWidget(datetime_group)
 
-        # CPU and GPU Metrics side by side
-        metrics_container = QWidget()
-        metrics_layout = QHBoxLayout(metrics_container)
-        metrics_layout.setContentsMargins(0, 0, 0, 0)
-        metrics_layout.setSpacing(6)
+        # CPU and GPU Metrics side by side (first row)
+        metrics_row1 = QWidget()
+        metrics_row1_layout = QHBoxLayout(metrics_row1)
+        metrics_row1_layout.setContentsMargins(0, 0, 0, 0)
+        metrics_row1_layout.setSpacing(6)
 
         # CPU Metrics section
         cpu_group = QGroupBox("CPU Metrics")
@@ -730,7 +731,7 @@ class ControlsManager:
             metric_layout = self._create_metric_row(row_label, display_name, metric_name)
             cpu_group_layout.addLayout(metric_layout)
 
-        metrics_layout.addWidget(cpu_group)
+        metrics_row1_layout.addWidget(cpu_group)
 
         # GPU Metrics section
         gpu_group = QGroupBox("GPU Metrics")
@@ -741,16 +742,60 @@ class ControlsManager:
         gpu_metric_labels = {
             "gpu_temperature": ("Temp:", "Temp"),
             "gpu_usage": ("Utilization:", "Usage"),
-            "gpu_frequency": ("Frequency:", "Freq")
+            "gpu_frequency": ("Frequency:", "Freq"),
+            "gpu_mem_total": ("VRAM Total:", "VRAM"),
+            "gpu_mem_percent": ("VRAM Usage:", "VRAM%")
         }
 
         for metric_name, (row_label, display_name) in gpu_metric_labels.items():
             metric_layout = self._create_metric_row(row_label, display_name, metric_name)
             gpu_group_layout.addLayout(metric_layout)
 
-        metrics_layout.addWidget(gpu_group)
+        metrics_row1_layout.addWidget(gpu_group)
 
-        overlay_layout.addWidget(metrics_container)
+        overlay_layout.addWidget(metrics_row1)
+
+        # RAM Metrics and Hardware Info side by side (second row)
+        metrics_row2 = QWidget()
+        metrics_row2_layout = QHBoxLayout(metrics_row2)
+        metrics_row2_layout.setContentsMargins(0, 0, 0, 0)
+        metrics_row2_layout.setSpacing(6)
+
+        # RAM Metrics section
+        ram_group = QGroupBox("RAM Metrics")
+        ram_group_layout = QVBoxLayout(ram_group)
+        ram_group_layout.setSpacing(6)
+        ram_group_layout.setContentsMargins(4, 8, 4, 4)
+
+        ram_metric_labels = {
+            "ram_total": ("Total:", "Total"),
+            "ram_percent": ("Usage:", "Usage")
+        }
+
+        for metric_name, (row_label, display_name) in ram_metric_labels.items():
+            metric_layout = self._create_metric_row(row_label, display_name, metric_name)
+            ram_group_layout.addLayout(metric_layout)
+
+        metrics_row2_layout.addWidget(ram_group)
+
+        # Hardware Info section (CPU and GPU names)
+        hw_info_group = QGroupBox("Hardware Info")
+        hw_info_layout = QVBoxLayout(hw_info_group)
+        hw_info_layout.setSpacing(6)
+        hw_info_layout.setContentsMargins(4, 8, 4, 4)
+
+        hw_info_labels = {
+            "cpu_name": ("CPU Name:", "CPU"),
+            "gpu_name": ("GPU Name:", "GPU")
+        }
+
+        for metric_name, (row_label, display_name) in hw_info_labels.items():
+            metric_layout = self._create_metric_row(row_label, display_name, metric_name)
+            hw_info_layout.addLayout(metric_layout)
+
+        metrics_row2_layout.addWidget(hw_info_group)
+
+        overlay_layout.addWidget(metrics_row2)
         
         # Free text controls - all 4 on one row in a group box
         free_text_group = QGroupBox("Free Text:")
@@ -842,6 +887,9 @@ class ControlsManager:
         row = QHBoxLayout()
         row.setSpacing(6)
         
+        # Metrics that don't need label/position controls (text-only metrics)
+        skip_label_controls = ["cpu_name", "gpu_name", "ram_percent"]
+        
         # Row label (Temperature:, Utilization:, Frequency:)
         label = QLabel(row_label)
         label.setFixedWidth(75)
@@ -869,77 +917,99 @@ class ControlsManager:
         self.metric_font_size_spins[metric_name] = font_size_spin
         row.addWidget(font_size_spin, alignment=Qt.AlignVCenter)
         
-        # Label input
-        lbl_label = QLabel("Label:")
-        lbl_label.setFixedWidth(45)
-        row.addWidget(lbl_label, alignment=Qt.AlignVCenter)
-        label_input = QLineEdit()
-        label_input.setPlaceholderText(self.metric_widgets[metric_name]._get_default_label() if metric_name in self.metric_widgets else "")
-        label_input.textChanged.connect(
-            lambda text, name=metric_name: self.parent.on_metric_label_changed(name, text))
-        label_input.setFixedWidth(80)
-        self.metric_label_inputs[metric_name] = label_input
-        row.addWidget(label_input, alignment=Qt.AlignVCenter)
-        
-        # Position dropdown
-        pos_label = QLabel("Pos:")
-        pos_label.setFixedWidth(35)
-        row.addWidget(pos_label, alignment=Qt.AlignVCenter)
-        label_pos_combo = QComboBox()
+        # Only show Label, Position, and Label Size for metrics that need them
+        if metric_name not in skip_label_controls:
+            # Label input
+            lbl_label = QLabel("Label:")
+            lbl_label.setFixedWidth(45)
+            row.addWidget(lbl_label, alignment=Qt.AlignVCenter)
+            label_input = QLineEdit()
+            label_input.setPlaceholderText(self.metric_widgets[metric_name]._get_default_label() if metric_name in self.metric_widgets else "")
+            label_input.textChanged.connect(
+                lambda text, name=metric_name: self.parent.on_metric_label_changed(name, text))
+            label_input.setFixedWidth(80)
+            self.metric_label_inputs[metric_name] = label_input
+            row.addWidget(label_input, alignment=Qt.AlignVCenter)
+            
+            # Position dropdown
+            pos_label = QLabel("Pos:")
+            pos_label.setFixedWidth(35)
+            row.addWidget(pos_label, alignment=Qt.AlignVCenter)
+            label_pos_combo = QComboBox()
 
-        label_pos_combo.addItem("Left", "left")
-        label_pos_combo.addItem("Right", "right")
-        label_pos_combo.addItem("Above", "above")
-        label_pos_combo.addItem("Below", "below")
-        label_pos_combo.addItem("None", "none")
-        label_pos_combo.setCurrentIndex(0)
-        label_pos_combo.setFixedWidth(100)
-        label_pos_combo.currentIndexChanged.connect(
-            lambda idx, name=metric_name, combo=label_pos_combo: 
-                self.parent.on_metric_label_position_changed(name, combo.currentData()))
-        self.metric_label_position_combos[metric_name] = label_pos_combo
-        row.addWidget(label_pos_combo, alignment=Qt.AlignVCenter)
+            label_pos_combo.addItem("Left", "left")
+            label_pos_combo.addItem("Right", "right")
+            label_pos_combo.addItem("Above", "above")
+            label_pos_combo.addItem("Below", "below")
+            label_pos_combo.addItem("None", "none")
+            label_pos_combo.setCurrentIndex(0)
+            label_pos_combo.setFixedWidth(100)
+            label_pos_combo.currentIndexChanged.connect(
+                lambda idx, name=metric_name, combo=label_pos_combo: 
+                    self.parent.on_metric_label_position_changed(name, combo.currentData()))
+            self.metric_label_position_combos[metric_name] = label_pos_combo
+            row.addWidget(label_pos_combo, alignment=Qt.AlignVCenter)
+            
+            # Label font size spinbox (after position)
+            lbl_size_label = QLabel("Label Size:")
+            lbl_size_label.setFixedWidth(70)
+            row.addWidget(lbl_size_label, alignment=Qt.AlignVCenter)
+            label_font_size_spin = QSpinBox()
+            label_font_size_spin.setRange(8, 72)
+            label_font_size_spin.setValue(14)
+            label_font_size_spin.setFixedWidth(60)
+            label_font_size_spin.valueChanged.connect(
+                lambda val, name=metric_name: self.parent.on_metric_label_font_size_changed(name, val))
+            self.metric_label_font_size_spins[metric_name] = label_font_size_spin
+            row.addWidget(label_font_size_spin, alignment=Qt.AlignVCenter)
         
-        # Label font size spinbox (after position)
-        lbl_size_label = QLabel("Label Size:")
-        lbl_size_label.setFixedWidth(70)
-        row.addWidget(lbl_size_label, alignment=Qt.AlignVCenter)
-        label_font_size_spin = QSpinBox()
-        label_font_size_spin.setRange(8, 72)
-        label_font_size_spin.setValue(14)
-        label_font_size_spin.setFixedWidth(60)
-        label_font_size_spin.valueChanged.connect(
-            lambda val, name=metric_name: self.parent.on_metric_label_font_size_changed(name, val))
-        self.metric_label_font_size_spins[metric_name] = label_font_size_spin
-        row.addWidget(label_font_size_spin, alignment=Qt.AlignVCenter)
+        # Metrics that don't need unit controls (name-only metrics)
+        skip_unit_controls = ["cpu_name", "gpu_name"]
         
-        # Unit/Format - for frequency show MHz/GHz, otherwise unit input
-        if 'frequency' in metric_name:
-            unit_label = QLabel("Unit:")
-            unit_label.setFixedWidth(35)
-            row.addWidget(unit_label, alignment=Qt.AlignVCenter)
-            freq_format_combo = QComboBox()
+        # Unit/Format - for frequency show MHz/GHz, otherwise unit input (unless skipped)
+        if metric_name not in skip_unit_controls:
+            if 'frequency' in metric_name:
+                unit_label = QLabel("Unit:")
+                unit_label.setFixedWidth(35)
+                row.addWidget(unit_label, alignment=Qt.AlignVCenter)
+                freq_format_combo = QComboBox()
 
-            freq_format_combo.addItem("MHz", "mhz")
-            freq_format_combo.addItem("GHz", "ghz")
-            freq_format_combo.setCurrentIndex(0)
-            freq_format_combo.setFixedWidth(100)
-            freq_format_combo.currentIndexChanged.connect(
-                lambda idx, name=metric_name, combo=freq_format_combo:
-                    self.parent.on_metric_freq_format_changed(name, combo.currentData()))
-            self.metric_freq_format_combos[metric_name] = freq_format_combo
-            row.addWidget(freq_format_combo, alignment=Qt.AlignVCenter)
-        else:
-            unit_label = QLabel("Unit:")
-            unit_label.setFixedWidth(35)
-            row.addWidget(unit_label, alignment=Qt.AlignVCenter)
-            unit_input = QLineEdit()
-            unit_input.setPlaceholderText(self.metric_widgets[metric_name]._get_default_unit() if metric_name in self.metric_widgets else "")
-            unit_input.textChanged.connect(
-                lambda text, name=metric_name: self.parent.on_metric_unit_changed(name, text))
-            unit_input.setFixedWidth(60)
-            self.metric_unit_inputs[metric_name] = unit_input
-            row.addWidget(unit_input, alignment=Qt.AlignVCenter)
+                freq_format_combo.addItem("MHz", "mhz")
+                freq_format_combo.addItem("GHz", "ghz")
+                freq_format_combo.setCurrentIndex(0)
+                freq_format_combo.setFixedWidth(100)
+                freq_format_combo.currentIndexChanged.connect(
+                    lambda idx, name=metric_name, combo=freq_format_combo:
+                        self.parent.on_metric_freq_format_changed(name, combo.currentData()))
+                self.metric_freq_format_combos[metric_name] = freq_format_combo
+                row.addWidget(freq_format_combo, alignment=Qt.AlignVCenter)
+            else:
+                unit_label = QLabel("Unit:")
+                unit_label.setFixedWidth(35)
+                row.addWidget(unit_label, alignment=Qt.AlignVCenter)
+                unit_input = QLineEdit()
+                unit_input.setPlaceholderText(self.metric_widgets[metric_name]._get_default_unit() if metric_name in self.metric_widgets else "")
+                unit_input.textChanged.connect(
+                    lambda text, name=metric_name: self.parent.on_metric_unit_changed(name, text))
+                unit_input.setFixedWidth(60)
+                self.metric_unit_inputs[metric_name] = unit_input
+                row.addWidget(unit_input, alignment=Qt.AlignVCenter)
+        
+        # Character limit spinbox for name metrics
+        if metric_name in ["cpu_name", "gpu_name"]:
+            char_limit_label = QLabel("Max Chars:")
+            char_limit_label.setFixedWidth(65)
+            row.addWidget(char_limit_label, alignment=Qt.AlignVCenter)
+            
+            char_limit_spin = QSpinBox()
+            char_limit_spin.setRange(0, 100)  # 0 = no limit
+            char_limit_spin.setValue(0)
+            char_limit_spin.setSpecialValueText("No Limit")  # Show "No Limit" when value is 0
+            char_limit_spin.setFixedWidth(80)
+            char_limit_spin.valueChanged.connect(
+                lambda val, name=metric_name: self.parent.on_metric_char_limit_changed(name, val))
+            self.metric_char_limit_combos[metric_name] = char_limit_spin
+            row.addWidget(char_limit_spin, alignment=Qt.AlignVCenter)
         
         row.addStretch()
         return row
@@ -1010,7 +1080,8 @@ class ControlsManager:
 
         metric_combo.addItems([
             "cpu_usage", "cpu_temperature", 
-            "gpu_usage", "gpu_temperature"
+            "gpu_usage", "gpu_temperature",
+            "ram_percent", "gpu_mem_percent"
         ])
         metric_combo.setFixedWidth(120)
         metric_combo.currentTextChanged.connect(
@@ -1131,7 +1202,8 @@ class ControlsManager:
 
         metric_combo.addItems([
             "cpu_usage", "cpu_temperature", 
-            "gpu_usage", "gpu_temperature"
+            "gpu_usage", "gpu_temperature",
+            "ram_percent", "gpu_mem_percent"
         ])
         metric_combo.setFixedWidth(120)
         metric_combo.currentTextChanged.connect(

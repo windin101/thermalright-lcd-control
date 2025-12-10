@@ -720,6 +720,7 @@ class MetricWidget(DraggableWidget):
         self.label_position = self.LABEL_LEFT  # Default: label on left
         self._label_font_size = None  # None means use same as value font size
         self._freq_format = "mhz"  # Default frequency format (mhz or ghz)
+        self._char_limit = 0  # 0 means no limit
         self._update_format()
         self.display_text = self._format_display_text()
         self.setText(self.display_text)
@@ -767,7 +768,9 @@ class MetricWidget(DraggableWidget):
         """Set initial position based on widget type"""
         positions = {
             "cpu_temperature": (10, 40), "gpu_temperature": (10, 70), "cpu_usage": (10, 100),
-            "gpu_usage": (10, 130), "cpu_frequency": (10, 160), "gpu_frequency": (10, 190)
+            "gpu_usage": (10, 130), "cpu_frequency": (10, 160), "gpu_frequency": (10, 190),
+            "cpu_name": (10, 10), "gpu_name": (10, 220), "ram_total": (150, 100),
+            "ram_percent": (150, 130), "gpu_mem_total": (150, 160), "gpu_mem_percent": (150, 190)
         }
         if self.metric_name in positions:
             self.move(*positions[self.metric_name])
@@ -896,6 +899,10 @@ class MetricWidget(DraggableWidget):
         if value is None:
             return "N/A"
         
+        # Apply character limit for name metrics
+        if self._char_limit > 0 and self.metric_name in ["cpu_name", "gpu_name"]:
+            value = str(value)[:self._char_limit]
+        
         # Convert frequency if this is a frequency metric and format is GHz
         if 'frequency' in self.metric_name and self._freq_format == "ghz":
             try:
@@ -920,6 +927,15 @@ class MetricWidget(DraggableWidget):
         """Get current frequency format"""
         return self._freq_format
 
+    def set_char_limit(self, limit: int):
+        """Set character limit for display value (0 = no limit)"""
+        self._char_limit = max(0, limit)
+        self.update_display()
+
+    def get_char_limit(self) -> int:
+        """Get current character limit"""
+        return self._char_limit
+
     def _get_default_label(self):
         """Get default label based on metric_name"""
         defaults = {
@@ -928,7 +944,13 @@ class MetricWidget(DraggableWidget):
             "cpu_usage": "CPU%",
             "gpu_usage": "GPU%",
             "cpu_frequency": "CPU",
-            "gpu_frequency": "GPU"
+            "gpu_frequency": "GPU",
+            "cpu_name": "",
+            "gpu_name": "",
+            "ram_total": "RAM",
+            "ram_percent": "RAM%",
+            "gpu_mem_total": "VRAM",
+            "gpu_mem_percent": "VRAM%"
         }
         return defaults.get(self.metric_name, "")
 
@@ -942,7 +964,13 @@ class MetricWidget(DraggableWidget):
             "cpu_temperature": "°",
             "gpu_temperature": "°",
             "cpu_usage": "%",
-            "gpu_usage": "%"
+            "gpu_usage": "%",
+            "cpu_name": "",
+            "gpu_name": "",
+            "ram_total": "GB",
+            "ram_percent": "%",
+            "gpu_mem_total": "GB",
+            "gpu_mem_percent": "%"
         }
         return defaults.get(self.metric_name, "")
 
@@ -1022,18 +1050,21 @@ class BarGraphWidget(QLabel):
         
         # Get value from metrics
         try:
-            if self._metric_name.startswith("cpu"):
-                cpu = _get_cpu_metrics()
-                if self._metric_name == "cpu_usage":
-                    self._current_value = cpu.get_usage_percentage() or 0
-                elif self._metric_name == "cpu_temperature":
-                    self._current_value = cpu.get_temperature() or 0
-            elif self._metric_name.startswith("gpu"):
-                gpu = _get_gpu_metrics()
-                if self._metric_name == "gpu_usage":
-                    self._current_value = gpu.get_usage_percentage() or 0
-                elif self._metric_name == "gpu_temperature":
-                    self._current_value = gpu.get_temperature() or 0
+            cpu = _get_cpu_metrics()
+            gpu = _get_gpu_metrics()
+            
+            if self._metric_name == "cpu_usage":
+                self._current_value = cpu.get_usage_percentage() or 0
+            elif self._metric_name == "cpu_temperature":
+                self._current_value = cpu.get_temperature() or 0
+            elif self._metric_name == "ram_percent":
+                self._current_value = cpu.get_ram_percent() or 0
+            elif self._metric_name == "gpu_usage":
+                self._current_value = gpu.get_usage_percentage() or 0
+            elif self._metric_name == "gpu_temperature":
+                self._current_value = gpu.get_temperature() or 0
+            elif self._metric_name == "gpu_mem_percent":
+                self._current_value = gpu.get_memory_percent() or 0
         except:
             pass
         
@@ -1341,18 +1372,21 @@ class CircularGraphWidget(QLabel):
             return
         
         try:
-            if self._metric_name.startswith("cpu"):
-                cpu = _get_cpu_metrics()
-                if self._metric_name == "cpu_usage":
-                    self._current_value = cpu.get_usage_percentage() or 0
-                elif self._metric_name == "cpu_temperature":
-                    self._current_value = cpu.get_temperature() or 0
-            elif self._metric_name.startswith("gpu"):
-                gpu = _get_gpu_metrics()
-                if self._metric_name == "gpu_usage":
-                    self._current_value = gpu.get_usage_percentage() or 0
-                elif self._metric_name == "gpu_temperature":
-                    self._current_value = gpu.get_temperature() or 0
+            cpu = _get_cpu_metrics()
+            gpu = _get_gpu_metrics()
+            
+            if self._metric_name == "cpu_usage":
+                self._current_value = cpu.get_usage_percentage() or 0
+            elif self._metric_name == "cpu_temperature":
+                self._current_value = cpu.get_temperature() or 0
+            elif self._metric_name == "ram_percent":
+                self._current_value = cpu.get_ram_percent() or 0
+            elif self._metric_name == "gpu_usage":
+                self._current_value = gpu.get_usage_percentage() or 0
+            elif self._metric_name == "gpu_temperature":
+                self._current_value = gpu.get_temperature() or 0
+            elif self._metric_name == "gpu_mem_percent":
+                self._current_value = gpu.get_memory_percent() or 0
         except:
             pass
         

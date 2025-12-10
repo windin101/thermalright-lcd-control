@@ -200,12 +200,19 @@ class MediaPreviewUI(QMainWindow):
         metrics_config = [
             "cpu_temperature", "gpu_temperature",
             "cpu_usage", "gpu_usage",
-            "cpu_frequency", "gpu_frequency"
+            "cpu_frequency", "gpu_frequency",
+            "cpu_name", "gpu_name",
+            "ram_total", "ram_percent",
+            "gpu_mem_total", "gpu_mem_percent"
         ]
 
         self.metric_widgets = {}
         for metric_name in metrics_config:
-            metric = self.cpu_metric if metric_name.startswith("cpu_") else self.gpu_metric
+            # RAM metrics use CPU metrics class, GPU metrics use GPU metrics class
+            if metric_name.startswith("cpu_") or metric_name.startswith("ram_"):
+                metric = self.cpu_metric
+            else:
+                metric = self.gpu_metric
             widget = MetricWidget(metric=metric, parent=self.preview_widget, metric_name=metric_name)
             widget.apply_style(self.text_style)
             widget.set_enabled(False)
@@ -1269,6 +1276,9 @@ class MediaPreviewUI(QMainWindow):
                     # Get frequency format for frequency metrics
                     freq_format = widget.get_freq_format() if hasattr(widget, 'get_freq_format') else 'mhz'
                     
+                    # Get character limit for name metrics
+                    char_limit = widget.get_char_limit() if hasattr(widget, 'get_char_limit') else 0
+                    
                     metrics_configs.append(MetricConfig(
                         name=metric_name,
                         label=widget.get_label(),
@@ -1279,7 +1289,8 @@ class MediaPreviewUI(QMainWindow):
                         unit=widget.get_unit(),
                         enabled=True,
                         label_position=label_pos,
-                        freq_format=freq_format
+                        freq_format=freq_format,
+                        char_limit=char_limit
                     ))
         
         # Text configs (free text widgets)
@@ -1740,6 +1751,13 @@ class MediaPreviewUI(QMainWindow):
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_label_position(position)
             self.logger.debug(f"Metric {metric_name} label position changed to {position}")
+            self.update_preview_widget_configs()
+
+    def on_metric_char_limit_changed(self, metric_name, limit):
+        """Handle metric character limit change (for cpu_name, gpu_name)"""
+        if metric_name in self.metric_widgets:
+            self.metric_widgets[metric_name].set_char_limit(limit)
+            self.logger.debug(f"Metric {metric_name} character limit changed to {limit}")
             self.update_preview_widget_configs()
 
     def on_collection_created(self, collection_path):

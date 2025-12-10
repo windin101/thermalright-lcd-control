@@ -312,13 +312,24 @@ class FrameManager:
                 'cpu_temperature': cpu_data.get('temperature'),
                 'cpu_usage': cpu_data.get('usage_percentage'),
                 'cpu_frequency': cpu_data.get('frequency'),
+                'cpu_name': cpu_data.get('cpu_name'),
+                
+                # RAM metrics
+                'ram_total': cpu_data.get('ram_total'),
+                'ram_used': cpu_data.get('ram_used'),
+                'ram_percent': cpu_data.get('ram_percent'),
 
                 # GPU metrics
                 'gpu_temperature': gpu_data.get('temperature'),
                 'gpu_usage': gpu_data.get('usage_percentage'),
                 'gpu_frequency': gpu_data.get('frequency'),
                 'gpu_vendor': gpu_data.get('vendor'),
-                'gpu_name': gpu_data.get('name')
+                'gpu_name': gpu_data.get('name'),
+                
+                # GPU memory metrics
+                'gpu_mem_total': gpu_data.get('memory_total'),
+                'gpu_mem_used': gpu_data.get('memory_used'),
+                'gpu_mem_percent': gpu_data.get('memory_percent')
             }
         except Exception as e:
             self.logger.error(f"Error updating metrics: {e}")

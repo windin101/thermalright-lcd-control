@@ -63,7 +63,8 @@ class ConfigLoader:
             unit=metric_data.get("unit", ""),
             enabled=metric_data.get("enabled", True),
             label_position=self._parse_label_position(label_pos_str),
-            freq_format=metric_data.get("freq_format", "mhz")
+            freq_format=metric_data.get("freq_format", "mhz"),
+            char_limit=metric_data.get("char_limit", 0)
         )
 
     def _parse_text_config(self, text_data: Dict[str, Any]) -> TextConfig:

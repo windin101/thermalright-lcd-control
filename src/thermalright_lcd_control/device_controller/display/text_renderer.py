@@ -219,6 +219,11 @@ class TextRenderer:
             if value is None:
                 value = "N/A"
 
+            # Apply character limit for name metrics (cpu_name, gpu_name)
+            char_limit = getattr(config, 'char_limit', 0)
+            if char_limit > 0 and config.name in ['cpu_name', 'gpu_name']:
+                value = str(value)[:char_limit]
+
             # Apply frequency conversion if needed (only for valid numeric values)
             is_ghz_format = 'frequency' in config.name and hasattr(config, 'freq_format') and config.freq_format == 'ghz'
             if is_ghz_format:

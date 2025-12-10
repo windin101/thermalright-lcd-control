@@ -104,6 +104,10 @@ class DisplayGenerator:
             for text_config in self.config.text_configs:
                 self.text_renderer.render_custom_text(draw, result, text_config)
 
+        # Draw bar graphs
+        if self.config.bar_configs:
+            self.text_renderer.render_bar_graphs(draw, result, metrics, self.config.bar_configs)
+
         convert = result.convert('RGB')
 
         # Apply rotation if configured and requested

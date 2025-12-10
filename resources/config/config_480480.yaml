@@ -1,8 +1,8 @@
 display:
   rotation: 0
   background:
-    path: ./resources/themes/backgrounds/y010.png
-    type: image
+    path: ./resources/themes/backgrounds/a001.mp4
+    type: video
   date:
     color: '#FFFFFFFF'
     enabled: false

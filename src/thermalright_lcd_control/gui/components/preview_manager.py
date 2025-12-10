@@ -11,7 +11,7 @@ from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import QLabel
 
 from thermalright_lcd_control.device_controller.display.config import (
-    DisplayConfig, BackgroundType, DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition
+    DisplayConfig, BackgroundType, DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig
 )
 from thermalright_lcd_control.device_controller.display.generator import DisplayGenerator
 
@@ -42,12 +42,14 @@ class PreviewManager:
         self.foreground_position = (0, 0)
         self.current_rotation = 0
         self.background_scale_mode = "stretch"  # Default scaling mode
+        self.refresh_interval = 1.0  # LCD refresh interval in seconds
 
         # Widget configs for PIL rendering
         self.date_config: Optional[DateConfig] = None
         self.time_config: Optional[TimeConfig] = None
         self.metrics_configs: List[MetricConfig] = []
         self.text_configs: List[TextConfig] = []
+        self.bar_configs: List[BarGraphConfig] = []
 
         # Components
         self.display_generator = None
@@ -140,6 +142,7 @@ class PreviewManager:
                 time_config=self.time_config,
                 metrics_configs=self.metrics_configs if self.metrics_configs else [],
                 text_configs=self.text_configs if hasattr(self, 'text_configs') and self.text_configs else [],
+                bar_configs=self.bar_configs if hasattr(self, 'bar_configs') and self.bar_configs else [],
                 # Text effects from text_style
                 shadow_enabled=self.text_style.shadow_enabled,
                 shadow_color=qcolor_to_rgba(self.text_style.shadow_color),
@@ -339,6 +342,7 @@ class PreviewManager:
                               time_config: Optional[TimeConfig] = None,
                               metrics_configs: Optional[List[MetricConfig]] = None,
                               text_configs: Optional[List[TextConfig]] = None,
+                              bar_configs: Optional[List[BarGraphConfig]] = None,
                               force_update: bool = True):
         """Update widget configs and refresh the preview.
         
@@ -347,6 +351,7 @@ class PreviewManager:
             time_config: Time configuration (None means disabled)
             metrics_configs: List of metric configurations (empty list means all disabled)
             text_configs: List of text configurations
+            bar_configs: List of bar graph configurations
             force_update: If True, always update configs even if None (for disabling widgets)
         """
         # Always update configs - None means widget is disabled
@@ -358,6 +363,8 @@ class PreviewManager:
             self.metrics_configs = metrics_configs if metrics_configs else []
         if force_update or text_configs is not None:
             self.text_configs = text_configs if text_configs else []
+        if force_update or bar_configs is not None:
+            self.bar_configs = bar_configs if bar_configs else []
         
         # Update configs in existing generator
         if self.display_generator and self.display_generator.config:
@@ -365,6 +372,7 @@ class PreviewManager:
             self.display_generator.config.time_config = self.time_config
             self.display_generator.config.metrics_configs = self.metrics_configs
             self.display_generator.config.text_configs = self.text_configs
+            self.display_generator.config.bar_configs = self.bar_configs
             self.update_preview_frame()
         else:
             self.create_display_generator()

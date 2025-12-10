@@ -20,7 +20,7 @@ class ConfigGenerator:
         self.logger = get_gui_logger()
 
     def generate_config_data(self, preview_manager, text_style, metric_widgets,
-                             date_widget, time_widget, text_widgets=None) -> Optional[dict]:
+                             date_widget, time_widget, text_widgets=None, bar_widgets=None) -> Optional[dict]:
         """Generate YAML configuration file based on current preview state"""
         try:
             # Get scale factor for converting preview coordinates to device coordinates
@@ -37,6 +37,7 @@ class ConfigGenerator:
             config_data = {
                 "display": {
                     "rotation": preview_manager.current_rotation,
+                    "refresh_interval": getattr(preview_manager, 'refresh_interval', 1.0),
                     "font_family": text_style.font_family,
                     "background": {
                         "enabled": preview_manager.is_background_enabled(),
@@ -78,7 +79,8 @@ class ConfigGenerator:
                     },
                     "date": self._create_date_time_config(date_widget, 310, 15, text_style, scale),
                     "time": self._create_date_time_config(time_widget, 310, 35, text_style, scale),
-                    "custom_texts": []
+                    "custom_texts": [],
+                    "bar_graphs": []
                 }
             }
 
@@ -129,6 +131,32 @@ class ConfigGenerator:
                         }
                         config_data["display"]["custom_texts"].append(text_config)
 
+            # Add bar graph configurations
+            if bar_widgets:
+                for bar_name, widget in bar_widgets.items():
+                    if widget.enabled:
+                        # Convert position from preview to device coordinates
+                        # Use get_position() which accounts for border padding
+                        pos = widget.get_position()
+                        bar_config = {
+                            "name": bar_name,
+                            "metric_name": widget.get_metric_name(),
+                            "enabled": widget.enabled,
+                            "position": {"x": int(pos[0] / scale), "y": int(pos[1] / scale)},
+                            "width": widget.get_width(),
+                            "height": widget.get_height(),
+                            "orientation": widget.get_orientation(),
+                            "fill_color": self._qcolor_to_hex(widget.get_fill_color()),
+                            "background_color": self._qcolor_to_hex(widget.get_background_color()),
+                            "border_color": self._qcolor_to_hex(widget.get_border_color()),
+                            "show_border": widget.get_show_border(),
+                            "border_width": widget.get_border_width(),
+                            "corner_radius": widget.get_corner_radius(),
+                            "min_value": widget.get_min_value(),
+                            "max_value": widget.get_max_value()
+                        }
+                        config_data["display"]["bar_graphs"].append(bar_config)
+
             return config_data
 
         except Exception as e:
@@ -136,26 +164,39 @@ class ConfigGenerator:
             return None
 
     def generate_config_yaml(self, preview_manager, text_style, metric_widgets,
-                             date_widget, time_widget, text_widgets=None, preview: bool = False) -> Optional[str]:
-        """Generate YAML configuration file based on current preview state"""
+                             date_widget, time_widget, text_widgets=None, bar_widgets=None, 
+                             preview: bool = False, existing_path: str = None) -> Optional[str]:
+        """Generate YAML configuration file based on current preview state
+        
+        Args:
+            existing_path: If provided, update this file instead of creating new one
+        """
         try:
+            self.logger.debug(f"generate_config_yaml called with preview={preview}, existing_path={existing_path}")
             config_data = self.generate_config_data(preview_manager, text_style, metric_widgets, date_widget,
-                                                    time_widget, text_widgets)
+                                                    time_widget, text_widgets, bar_widgets)
 
             # Use device dimensions, not scaled preview dimensions
             services_config_path = self._get_service_config_file_path(preview_manager.device_width,
                                                                       preview_manager.device_height)
+            self.logger.debug(f"Saving service config to: {services_config_path}")
             self._save_config_file(services_config_path, config_data)
 
             if not preview:
-                # Save configuration
-                config_path = self._get_new_config_file_path(preview_manager.device_width,
-                                                             preview_manager.device_height)
+                # Save configuration - use existing path or generate new
+                if existing_path:
+                    config_path = Path(existing_path)
+                else:
+                    config_path = self._get_new_config_file_path(preview_manager.device_width,
+                                                                 preview_manager.device_height)
+                self.logger.debug(f"Saving theme config to: {config_path}")
                 self._save_config_file(config_path, config_data)
                 return f"{config_path.absolute()}"
 
         except Exception as e:
             self.logger.error(f"Error generating config YAML: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
         return None
 
     def _create_date_time_config(self, widget, default_x, default_y, text_style, scale=1.0):
@@ -202,8 +243,10 @@ class ConfigGenerator:
         """Generate new configuration file name and path based on current timestamp"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"config_{timestamp}.yaml"
-        themes_dir = f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{dev_width}{dev_height}"
-        return Path(themes_dir) / filename
+        themes_dir = Path(f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{dev_width}{dev_height}")
+        # Ensure the themes directory exists
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        return themes_dir / filename
 
     def _get_service_config_file_path(self, dev_width, dev_height) -> Optional[Path]:
         try:

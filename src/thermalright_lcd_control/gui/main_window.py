@@ -5,6 +5,7 @@
 
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
 from PySide6.QtWidgets import (QTabWidget, QFrame, QColorDialog, QMessageBox)
+from PySide6.QtCore import QTimer
 
 from thermalright_lcd_control.gui.components.config_generator import ConfigGenerator
 from thermalright_lcd_control.gui.components.controls_manager import ControlsManager
@@ -17,7 +18,7 @@ from thermalright_lcd_control.gui.styles import MODERN_STYLESHEET
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
-from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition
+from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig
 
 
 class MediaPreviewUI(QMainWindow):
@@ -47,6 +48,7 @@ class MediaPreviewUI(QMainWindow):
         self.text_style = TextStyleConfig()
         self.media_tabs = []
         self.current_rotation = 0  # Default rotation
+        self.refresh_interval = 1.0  # Default LCD refresh interval in seconds
 
         # UI Components will be initialized in setup_ui
         self.preview_label = None
@@ -59,6 +61,16 @@ class MediaPreviewUI(QMainWindow):
         self.time_widget = None
         self.metric_widgets = {}
         self.text_widgets = {}  # Free text widgets
+        self.bar_widgets = {}   # Bar graph widgets
+        
+        # Track currently loaded theme for save/update
+        self.current_theme_path = None
+        
+        # Debounce timer for position updates during dragging
+        self._position_update_timer = QTimer()
+        self._position_update_timer.setSingleShot(True)
+        self._position_update_timer.setInterval(50)  # 50ms debounce
+        self._position_update_timer.timeout.connect(self._do_update_preview_widget_configs)
 
         # Initialize UI
         self.setup_window()
@@ -211,6 +223,15 @@ class MediaPreviewUI(QMainWindow):
             widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
             self.text_widgets[widget_name] = widget
 
+        # Bar graph widgets
+        self.bar_widgets = {}
+        for i in range(1, 5):
+            widget_name = f"bar{i}"
+            widget = BarGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+            widget.set_enabled(False)
+            widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+            self.bar_widgets[widget_name] = widget
+
         # Ensure overlay widgets are above the foreground drag handle
         self._raise_overlay_widgets()
 
@@ -233,6 +254,9 @@ class MediaPreviewUI(QMainWindow):
         for widget in self.text_widgets.values():
             if widget:
                 widget.raise_()
+        for widget in self.bar_widgets.values():
+            if widget:
+                widget.raise_()
 
     def apply_style_to_all_widgets(self):
         """Apply current text style to all overlay widgets"""
@@ -249,6 +273,7 @@ class MediaPreviewUI(QMainWindow):
         themes_dir = f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{self.dev_width}{self.dev_height}"
         self.themes_tab = ThemesTab(themes_dir, dev_width=self.dev_width, dev_height=self.dev_height)
         self.themes_tab.theme_selected.connect(self.on_theme_selected)
+        self.themes_tab.new_theme_requested.connect(self.create_new_theme)
         self.media_tabs.append(self.themes_tab)
         self.tab_widget.addTab(self.themes_tab, "Themes")
 
@@ -272,6 +297,10 @@ class MediaPreviewUI(QMainWindow):
             import yaml
             from pathlib import Path
             from PySide6.QtGui import QColor
+
+            # Track the currently loaded theme path
+            self.current_theme_path = theme_path
+            self.logger.debug(f"Set current_theme_path to: {theme_path}")
 
             # Load theme configuration
             with open(theme_path, 'r', encoding='utf-8') as f:
@@ -908,6 +937,13 @@ class MediaPreviewUI(QMainWindow):
         if self.preview_manager:
             self.preview_manager.set_rotation(rotation)
 
+    def on_refresh_interval_changed(self, interval):
+        """Handle LCD refresh interval change"""
+        self.refresh_interval = interval
+        if self.preview_manager:
+            self.preview_manager.refresh_interval = interval
+        self.logger.debug(f"Refresh interval changed to {interval}s")
+
     def on_snap_to_grid_changed(self, enabled):
         """Handle snap-to-grid toggle"""
         if hasattr(self, 'grid_overlay'):
@@ -968,7 +1004,11 @@ class MediaPreviewUI(QMainWindow):
                 if label:
                     label.setText(f"({device_x}, {device_y})")
         
-        # Update preview with new widget positions
+        # Debounce preview update - restart timer on each move
+        self._position_update_timer.start()
+    
+    def _do_update_preview_widget_configs(self):
+        """Actually update preview widget configs (called by debounce timer)"""
         self.update_preview_widget_configs()
 
     def collect_widget_configs(self):
@@ -1030,6 +1070,9 @@ class MediaPreviewUI(QMainWindow):
                     }
                     label_pos = label_pos_map.get(widget.get_label_position(), LabelPosition.LEFT)
                     
+                    # Get frequency format for frequency metrics
+                    freq_format = widget.get_freq_format() if hasattr(widget, 'get_freq_format') else 'mhz'
+                    
                     metrics_configs.append(MetricConfig(
                         name=metric_name,
                         label=widget.get_label(),
@@ -1039,7 +1082,8 @@ class MediaPreviewUI(QMainWindow):
                         color=text_color,
                         unit=widget.get_unit(),
                         enabled=True,
-                        label_position=label_pos
+                        label_position=label_pos,
+                        freq_format=freq_format
                     ))
         
         # Text configs (free text widgets)
@@ -1059,19 +1103,47 @@ class MediaPreviewUI(QMainWindow):
                         enabled=True
                     ))
         
-        return date_config, time_config, metrics_configs, text_configs
+        # Bar graph configs
+        bar_configs = []
+        if hasattr(self, 'bar_widgets'):
+            for bar_name, widget in self.bar_widgets.items():
+                if widget and widget.enabled:
+                    # Use get_position() which accounts for border padding
+                    pos = widget.get_position()
+                    device_x = int(pos[0] / self.preview_scale)
+                    device_y = int(pos[1] / self.preview_scale)
+                    
+                    bar_configs.append(BarGraphConfig(
+                        metric_name=widget.get_metric_name(),
+                        position=(device_x, device_y),
+                        width=widget.get_width(),
+                        height=widget.get_height(),
+                        orientation=widget.get_orientation(),
+                        fill_color=qcolor_to_rgba(widget.get_fill_color()),
+                        background_color=qcolor_to_rgba(widget.get_background_color()),
+                        border_color=qcolor_to_rgba(widget.get_border_color()),
+                        show_border=widget.get_show_border(),
+                        border_width=widget.get_border_width(),
+                        corner_radius=widget.get_corner_radius(),
+                        min_value=widget.get_min_value(),
+                        max_value=widget.get_max_value(),
+                        enabled=True
+                    ))
+        
+        return date_config, time_config, metrics_configs, text_configs, bar_configs
 
     def update_preview_widget_configs(self):
         """Update preview manager with current widget configs"""
         if not self.preview_manager:
             return
         
-        date_config, time_config, metrics_configs, text_configs = self.collect_widget_configs()
+        date_config, time_config, metrics_configs, text_configs, bar_configs = self.collect_widget_configs()
         self.preview_manager.update_widget_configs(
             date_config=date_config,
             time_config=time_config,
             metrics_configs=metrics_configs,
-            text_configs=text_configs
+            text_configs=text_configs,
+            bar_configs=bar_configs
         )
 
     def on_foreground_dragged(self, x, y):
@@ -1159,6 +1231,104 @@ class MediaPreviewUI(QMainWindow):
         if text_name in self.text_widgets:
             self.text_widgets[text_name].set_font_size(size)
             self.update_preview_widget_configs()
+
+    # Bar graph widget handlers
+    def on_bar_toggled(self, bar_name, enabled):
+        """Handle bar graph widget toggle"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_enabled(enabled)
+            self.update_preview_widget_configs()
+
+    def on_bar_metric_changed(self, bar_name, metric):
+        """Handle bar graph metric change"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_metric_name(metric)
+            self.update_preview_widget_configs()
+
+    def on_bar_width_changed(self, bar_name, width):
+        """Handle bar graph width change"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_width(width)
+            self.update_preview_widget_configs()
+
+    def on_bar_height_changed(self, bar_name, height):
+        """Handle bar graph height change"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_height(height)
+            self.update_preview_widget_configs()
+
+    def on_bar_corner_radius_changed(self, bar_name, radius):
+        """Handle bar graph corner radius change"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_corner_radius(radius)
+            self.update_preview_widget_configs()
+
+    def on_bar_orientation_changed(self, bar_name, orientation):
+        """Handle bar graph orientation change - swap width/height when orientation changes"""
+        if bar_name in self.bar_widgets:
+            widget = self.bar_widgets[bar_name]
+            current_orientation = widget.get_orientation()
+            
+            # Only swap if orientation is actually changing
+            if current_orientation != orientation:
+                # Get current dimensions
+                current_width = widget.get_width()
+                current_height = widget.get_height()
+                
+                # Swap width and height
+                widget.set_width(current_height)
+                widget.set_height(current_width)
+                
+                # Update the spinbox values in the UI
+                if bar_name in self.controls_manager.bar_width_spins:
+                    self.controls_manager.bar_width_spins[bar_name].blockSignals(True)
+                    self.controls_manager.bar_width_spins[bar_name].setValue(current_height)
+                    self.controls_manager.bar_width_spins[bar_name].blockSignals(False)
+                if bar_name in self.controls_manager.bar_height_spins:
+                    self.controls_manager.bar_height_spins[bar_name].blockSignals(True)
+                    self.controls_manager.bar_height_spins[bar_name].setValue(current_width)
+                    self.controls_manager.bar_height_spins[bar_name].blockSignals(False)
+                
+                # Set the new orientation
+                widget.set_orientation(orientation)
+            
+            self.update_preview_widget_configs()
+
+    def on_bar_fill_color_clicked(self, bar_name):
+        """Handle bar graph fill color picker"""
+        if bar_name in self.bar_widgets:
+            widget = self.bar_widgets[bar_name]
+            color = QColorDialog.getColor(widget.get_fill_color(), self, "Select Fill Color")
+            if color.isValid():
+                widget.set_fill_color(color)
+                if bar_name in self.controls_manager.bar_fill_color_btns:
+                    self.controls_manager.bar_fill_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
+
+    def on_bar_bg_color_clicked(self, bar_name):
+        """Handle bar graph background color picker"""
+        if bar_name in self.bar_widgets:
+            widget = self.bar_widgets[bar_name]
+            color = QColorDialog.getColor(widget.get_background_color(), self, "Select Background Color")
+            if color.isValid():
+                widget.set_background_color(color)
+                if bar_name in self.controls_manager.bar_bg_color_btns:
+                    self.controls_manager.bar_bg_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
+
+    def on_bar_border_color_clicked(self, bar_name):
+        """Handle bar graph border color picker"""
+        if bar_name in self.bar_widgets:
+            widget = self.bar_widgets[bar_name]
+            color = QColorDialog.getColor(widget.get_border_color(), self, "Select Border Color")
+            if color.isValid():
+                widget.set_border_color(color)
+                if bar_name in self.controls_manager.bar_border_color_btns:
+                    self.controls_manager.bar_border_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                self.update_preview_widget_configs()
 
     def on_opacity_text_changed(self, text):
         """Handle opacity text input change (real-time)"""
@@ -1317,19 +1487,100 @@ class MediaPreviewUI(QMainWindow):
         self.preview_manager.clear_all(self.backgrounds_dir)
 
     def generate_config_yaml(self):
-        """Generate YAML configuration file"""
+        """Generate YAML configuration file - updates existing theme if loaded"""
+        # If a theme is currently loaded, update it; otherwise create new
+        save_path = self.current_theme_path if self.current_theme_path else None
         config_path = self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
-            self.date_widget, self.time_widget, self.text_widgets
+            self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
+            existing_path=save_path
         )
         if config_path:
+            self.current_theme_path = config_path  # Update path in case it was new
             self.themes_tab.refresh_themes()
+    
+    def create_new_theme(self):
+        """Create a new blank theme - resets everything to default state"""
+        # Clear current theme path
+        self.current_theme_path = None
+        
+        # Clear background and foreground
+        if self.preview_manager:
+            self.preview_manager.clear_all(self.backgrounds_dir)
+        
+        # Clear draggable foreground widget
+        if hasattr(self, 'foreground_widget') and self.foreground_widget:
+            self.foreground_widget.clear_foreground()
+        
+        # Disable all metric widgets
+        for metric_name, widget in self.metric_widgets.items():
+            widget.set_enabled(False)
+            if self.controls_manager:
+                checkbox = self.controls_manager.metric_checkboxes.get(metric_name)
+                if checkbox:
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(False)
+                    checkbox.blockSignals(False)
+        
+        # Disable date widget
+        if self.date_widget:
+            self.date_widget.set_enabled(False)
+            if self.controls_manager and self.controls_manager.date_checkbox:
+                self.controls_manager.date_checkbox.blockSignals(True)
+                self.controls_manager.date_checkbox.setChecked(False)
+                self.controls_manager.date_checkbox.blockSignals(False)
+        
+        # Disable time widget
+        if self.time_widget:
+            self.time_widget.set_enabled(False)
+            if self.controls_manager and self.controls_manager.time_checkbox:
+                self.controls_manager.time_checkbox.blockSignals(True)
+                self.controls_manager.time_checkbox.setChecked(False)
+                self.controls_manager.time_checkbox.blockSignals(False)
+        
+        # Disable all free text widgets
+        for text_name, widget in self.text_widgets.items():
+            widget.set_enabled(False)
+            if self.controls_manager:
+                checkbox = self.controls_manager.text_checkboxes.get(text_name)
+                if checkbox:
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(False)
+                    checkbox.blockSignals(False)
+        
+        # Disable all bar graph widgets
+        for bar_name, widget in self.bar_widgets.items():
+            widget.set_enabled(False)
+            if self.controls_manager:
+                checkbox = self.controls_manager.bar_checkboxes.get(bar_name)
+                if checkbox:
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(False)
+                    checkbox.blockSignals(False)
+        
+        # Update preview
+        self.update_preview_widget_configs()
+        
+        # Save the blank theme as a new file
+        self.logger.debug("Attempting to save new blank theme...")
+        config_path = self.config_generator.generate_config_yaml(
+            self.preview_manager, self.text_style, self.metric_widgets,
+            self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
+            existing_path=None  # Force new file
+        )
+        self.logger.debug(f"Config path returned: {config_path}")
+        if config_path:
+            self.current_theme_path = config_path
+            self.themes_tab.refresh_themes()
+            self.logger.info(f"Created new blank theme: {config_path}")
+        else:
+            self.logger.error("Failed to create new theme - config_path is None")
 
     def generate_preview(self):
         """Generate YAML configuration file"""
         self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
-            self.date_widget, self.time_widget, self.text_widgets, preview=True
+            self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets, preview=True
         )
 
     def closeEvent(self, event):

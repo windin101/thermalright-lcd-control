@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 
 from PIL import ImageDraw, ImageFont, ImageFilter, Image
 
-from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig
+from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 # Import font manager from current package
@@ -214,17 +214,30 @@ class TextRenderer:
             if not config.enabled:
                 continue
 
-            # Get metric value
+            # Get metric value - use "N/A" if not available instead of skipping
             value = metrics.get(config.name)
             if value is None:
-                continue
+                value = "N/A"
+
+            # Apply frequency conversion if needed (only for valid numeric values)
+            is_ghz_format = 'frequency' in config.name and hasattr(config, 'freq_format') and config.freq_format == 'ghz'
+            if is_ghz_format:
+                try:
+                    # Value is in MHz, convert to GHz
+                    mhz_value = float(value)
+                    value = mhz_value / 1000.0
+                except (ValueError, TypeError):
+                    pass
 
             # Get fonts - separate for value and label
             value_font = self._get_font(config.font_size)
             label_font = self._get_font(config.get_label_font_size())
             
-            # Format the value part
-            formatted_value = self._safe_format_value(value, "{value}", config.name)
+            # Format the value part - use 2 decimal places for GHz
+            if is_ghz_format and isinstance(value, float):
+                formatted_value = f"{value:.2f}"
+            else:
+                formatted_value = self._safe_format_value(value, "{value}", config.name)
             value_text = f"{formatted_value}{config.unit}"
             label_text = config.label if config.label else ""
             
@@ -356,3 +369,112 @@ class TextRenderer:
 
         # Draw text with effects
         self._draw_text_with_effects(draw, image, config.position, config.text, font, config.color)
+
+    def render_bar_graphs(self, draw: ImageDraw.Draw, image: Image.Image, 
+                          metrics: Optional[Dict[str, Any]], configs: List[BarGraphConfig]):
+        """Render bar graphs for metrics"""
+        if not metrics or not configs:
+            return
+
+        for config in configs:
+            if not config.enabled:
+                continue
+
+            # Get metric value
+            value = metrics.get(config.metric_name)
+            if value is None:
+                continue
+
+            # Normalize value to 0-1 range
+            try:
+                normalized = (float(value) - config.min_value) / (config.max_value - config.min_value)
+                normalized = max(0.0, min(1.0, normalized))  # Clamp to 0-1
+            except (ValueError, ZeroDivisionError):
+                normalized = 0.0
+
+            x, y = config.position
+            w, h = config.width, config.height
+
+            # Draw background
+            if config.corner_radius > 0:
+                self._draw_rounded_rect(draw, x, y, w, h, config.corner_radius, config.background_color)
+            else:
+                draw.rectangle([x, y, x + w, y + h], fill=config.background_color)
+
+            # Draw filled portion
+            if normalized > 0:
+                if config.orientation == "horizontal":
+                    fill_width = int(w * normalized)
+                    if fill_width > 0:
+                        if config.corner_radius > 0:
+                            # For rounded, we need to clip the fill
+                            self._draw_rounded_rect(draw, x, y, fill_width, h, 
+                                                   min(config.corner_radius, fill_width // 2), 
+                                                   config.fill_color)
+                        else:
+                            draw.rectangle([x, y, x + fill_width, y + h], fill=config.fill_color)
+                else:  # vertical
+                    fill_height = int(h * normalized)
+                    if fill_height > 0:
+                        fill_y = y + h - fill_height  # Fill from bottom
+                        if config.corner_radius > 0:
+                            self._draw_rounded_rect(draw, x, fill_y, w, fill_height,
+                                                   min(config.corner_radius, fill_height // 2),
+                                                   config.fill_color)
+                        else:
+                            draw.rectangle([x, fill_y, x + w, y + h], fill=config.fill_color)
+
+            # Draw border
+            if config.show_border:
+                if config.corner_radius > 0:
+                    self._draw_rounded_rect_outline(draw, x, y, w, h, config.corner_radius,
+                                                    config.border_color, config.border_width)
+                else:
+                    draw.rectangle([x, y, x + w, y + h], outline=config.border_color, 
+                                  width=config.border_width)
+
+    def _draw_rounded_rect(self, draw: ImageDraw.Draw, x: int, y: int, w: int, h: int, 
+                           radius: int, fill_color: tuple):
+        """Draw a rounded rectangle"""
+        radius = min(radius, w // 2, h // 2)  # Ensure radius doesn't exceed dimensions
+        if radius <= 0:
+            draw.rectangle([x, y, x + w, y + h], fill=fill_color)
+            return
+        
+        # Draw rounded rectangle using pieslices for corners and rectangles for sides
+        # Top-left corner
+        draw.pieslice([x, y, x + 2 * radius, y + 2 * radius], 180, 270, fill=fill_color)
+        # Top-right corner
+        draw.pieslice([x + w - 2 * radius, y, x + w, y + 2 * radius], 270, 360, fill=fill_color)
+        # Bottom-left corner
+        draw.pieslice([x, y + h - 2 * radius, x + 2 * radius, y + h], 90, 180, fill=fill_color)
+        # Bottom-right corner
+        draw.pieslice([x + w - 2 * radius, y + h - 2 * radius, x + w, y + h], 0, 90, fill=fill_color)
+        
+        # Fill rectangles
+        # Top
+        draw.rectangle([x + radius, y, x + w - radius, y + radius], fill=fill_color)
+        # Middle
+        draw.rectangle([x, y + radius, x + w, y + h - radius], fill=fill_color)
+        # Bottom
+        draw.rectangle([x + radius, y + h - radius, x + w - radius, y + h], fill=fill_color)
+
+    def _draw_rounded_rect_outline(self, draw: ImageDraw.Draw, x: int, y: int, w: int, h: int,
+                                   radius: int, outline_color: tuple, width: int = 1):
+        """Draw a rounded rectangle outline"""
+        radius = min(radius, w // 2, h // 2)
+        if radius <= 0:
+            draw.rectangle([x, y, x + w, y + h], outline=outline_color, width=width)
+            return
+        
+        # Draw arcs for corners
+        draw.arc([x, y, x + 2 * radius, y + 2 * radius], 180, 270, fill=outline_color, width=width)
+        draw.arc([x + w - 2 * radius, y, x + w, y + 2 * radius], 270, 360, fill=outline_color, width=width)
+        draw.arc([x, y + h - 2 * radius, x + 2 * radius, y + h], 90, 180, fill=outline_color, width=width)
+        draw.arc([x + w - 2 * radius, y + h - 2 * radius, x + w, y + h], 0, 90, fill=outline_color, width=width)
+        
+        # Draw lines for sides
+        draw.line([x + radius, y, x + w - radius, y], fill=outline_color, width=width)  # Top
+        draw.line([x + radius, y + h, x + w - radius, y + h], fill=outline_color, width=width)  # Bottom
+        draw.line([x, y + radius, x, y + h - radius], fill=outline_color, width=width)  # Left
+        draw.line([x + w, y + radius, x + w, y + h - radius], fill=outline_color, width=width)  # Right

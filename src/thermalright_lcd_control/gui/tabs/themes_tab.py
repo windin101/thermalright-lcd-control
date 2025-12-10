@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QScrollArea, QGridLayout, QPushButton, QMessageBox,
                                QSpacerItem, QSizePolicy)
@@ -25,12 +24,18 @@ class ThemesTab(QWidget):
     """Tab widget for displaying theme files"""
 
     theme_selected = Signal(str)  # Signal emitted with selected theme path
+    new_theme_requested = Signal()  # Signal emitted when New Theme button is clicked
 
     def __init__(self, themes_dir: str, dev_width: int, dev_height: int):
         super().__init__()
 
         self.logger = get_gui_logger()
-        self.themes_dir = Path(Path.cwd(), themes_dir)
+        # Use absolute path if provided, otherwise resolve relative to cwd
+        themes_path = Path(themes_dir)
+        if themes_path.is_absolute():
+            self.themes_dir = themes_path
+        else:
+            self.themes_dir = Path(Path.cwd(), themes_dir)
         self.thumbnails = []
         self.dev_width = dev_width
         self.dev_height = dev_height
@@ -43,22 +48,33 @@ class ThemesTab(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
-        # Header
+        # Header with buttons (matching MediaTab style)
         header_layout = QHBoxLayout()
 
-        title_label = QLabel("Available Themes")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
+        # New Theme button (green like Save button)
+        new_theme_btn = QPushButton("+ New Theme")
+        new_theme_btn.clicked.connect(self.on_new_theme_clicked)
+        new_theme_btn.setMaximumWidth(150)
+        new_theme_btn.setStyleSheet("""
+            QPushButton { background-color: #27ae60; color: white; font-weight: bold; 
+                         padding: 8px; border-radius: 6px; }
+            QPushButton:hover { background-color: #219a52; }
+        """)
 
+        # Open Folder button
+        open_folder_btn = QPushButton("Open Folder")
+        open_folder_btn.clicked.connect(self.on_open_folder_clicked)
+        open_folder_btn.setMaximumWidth(150)
+
+        # Refresh button
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_themes)
-        refresh_btn.setMaximumWidth(100)
+        refresh_btn.setMaximumWidth(150)
 
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
+        header_layout.addWidget(new_theme_btn)
+        header_layout.addWidget(open_folder_btn)
         header_layout.addWidget(refresh_btn)
+        header_layout.addStretch()
 
         main_layout.addLayout(header_layout)
 
@@ -260,6 +276,33 @@ class ThemesTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error getting first image from collection {collection_path}: {e}")
             return ""
+
+    def on_new_theme_clicked(self):
+        """Handle New Theme button click"""
+        self.new_theme_requested.emit()
+
+    def on_open_folder_clicked(self):
+        """Open the themes folder in the system file manager"""
+        import subprocess
+        import platform
+        
+        folder_path = str(self.themes_dir)
+        
+        try:
+            # Ensure the directory exists
+            self.themes_dir.mkdir(parents=True, exist_ok=True)
+            
+            system = platform.system()
+            if system == "Linux":
+                subprocess.Popen(["xdg-open", folder_path])
+            elif system == "Darwin":  # macOS
+                subprocess.Popen(["open", folder_path])
+            elif system == "Windows":
+                subprocess.Popen(["explorer", folder_path])
+            else:
+                self.logger.warning(f"Unsupported platform for opening folder: {system}")
+        except Exception as e:
+            self.logger.error(f"Error opening folder {folder_path}: {e}")
 
     def on_theme_selected(self, theme_path: str):
         """Handle theme selection"""

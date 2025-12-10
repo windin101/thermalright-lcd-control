@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple
 
 import yaml
 
-from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType, MetricConfig, TextConfig, LabelPosition, DateConfig, TimeConfig
+from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType, MetricConfig, TextConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 
@@ -62,7 +62,8 @@ class ConfigLoader:
             format_string=metric_data.get("format_string", "{label}{value}"),
             unit=metric_data.get("unit", ""),
             enabled=metric_data.get("enabled", True),
-            label_position=self._parse_label_position(label_pos_str)
+            label_position=self._parse_label_position(label_pos_str),
+            freq_format=metric_data.get("freq_format", "mhz")
         )
 
     def _parse_text_config(self, text_data: Dict[str, Any]) -> TextConfig:
@@ -76,6 +77,28 @@ class ConfigLoader:
             font_size=text_data["font_size"],
             color=self._hex_to_rgba(text_data["color"]),
             enabled=text_data.get("enabled", True)
+        )
+
+    def _parse_bar_config(self, bar_data: Dict[str, Any]) -> BarGraphConfig:
+        """Parse a bar graph configuration from YAML data"""
+        return BarGraphConfig(
+            metric_name=bar_data["metric_name"],
+            position=(
+                bar_data["position"]["x"],
+                bar_data["position"]["y"]
+            ),
+            width=bar_data.get("width", 100),
+            height=bar_data.get("height", 16),
+            orientation=bar_data.get("orientation", "horizontal"),
+            fill_color=self._hex_to_rgba(bar_data.get("fill_color", "#00FF00FF")),
+            background_color=self._hex_to_rgba(bar_data.get("background_color", "#323232FF")),
+            border_color=self._hex_to_rgba(bar_data.get("border_color", "#FFFFFFFF")),
+            show_border=bar_data.get("show_border", True),
+            border_width=bar_data.get("border_width", 1),
+            corner_radius=bar_data.get("corner_radius", 0),
+            min_value=bar_data.get("min_value", 0.0),
+            max_value=bar_data.get("max_value", 100.0),
+            enabled=bar_data.get("enabled", True)
         )
 
     def _parse_date_config(self, date_data: Dict[str, Any]) -> DateConfig:
@@ -150,6 +173,12 @@ class ConfigLoader:
         for text_data in custom_texts:
             if text_data.get("enabled", True):
                 text_configs.append(self._parse_text_config(text_data))
+        # Parse bar graph configurations
+        bar_configs = []
+        bar_graphs = display_data.get("bar_graphs", [])
+        for bar_data in bar_graphs:
+            if bar_data.get("enabled", True):
+                bar_configs.append(self._parse_bar_config(bar_data))
         # Parse foreground configuration
         foreground_path = None
         foreground_position = (0, 0)
@@ -165,6 +194,9 @@ class ConfigLoader:
 
         # Parse rotation (default to 0 if not specified)
         rotation = display_data.get("rotation", 0)
+        
+        # Parse refresh interval (default to 1.0 seconds if not specified)
+        refresh_interval = display_data.get("refresh_interval", 1.0)
         
         # Parse background scale mode (default to stretch if not specified)
         background_scale_mode = display_data.get("background", {}).get("scale_mode", "stretch")
@@ -205,6 +237,7 @@ class ConfigLoader:
             output_width=width,
             output_height=height,
             rotation=rotation,
+            refresh_interval=refresh_interval,
             background_path=display_data["background"]["path"],
             background_type=BackgroundType(display_data["background"]["type"]),
             background_scale_mode=background_scale_mode,
@@ -217,6 +250,7 @@ class ConfigLoader:
             date_config=date_config,
             time_config=time_config,
             text_configs=text_configs,
+            bar_configs=bar_configs,
             shadow_enabled=shadow_enabled,
             shadow_color=shadow_color,
             shadow_offset_x=shadow_offset_x,

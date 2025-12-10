@@ -105,6 +105,7 @@ class MetricConfig:
     unit: str = ""
     enabled: bool = True
     label_position: LabelPosition = LabelPosition.LEFT
+    freq_format: str = "mhz"  # Frequency format: "mhz" or "ghz"
 
     def get_label_font_size(self) -> int:
         """Get label font size (individual or same as value)"""
@@ -112,6 +113,32 @@ class MetricConfig:
 
     def format_label(self):
         return f"{self.label}: " if self.label else ""
+
+
+@dataclass
+class BarGraphConfig:
+    """Configuration for bar graph display"""
+    metric_name: str  # Which metric to display (cpu_usage, gpu_temp, etc.)
+    position: Tuple[int, int] = (0, 0)  # (x, y)
+    width: int = 100  # Bar width in pixels
+    height: int = 16  # Bar height in pixels
+    orientation: str = "horizontal"  # horizontal or vertical
+    
+    # Colors (themeable)
+    fill_color: Tuple[int, int, int, int] = (0, 255, 0, 255)  # Green fill
+    background_color: Tuple[int, int, int, int] = (50, 50, 50, 255)  # Dark gray
+    border_color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # White border
+    
+    # Style options
+    show_border: bool = True
+    border_width: int = 1
+    corner_radius: int = 0  # 0 = square, >0 = rounded corners
+    
+    # Value range for normalization
+    min_value: float = 0.0
+    max_value: float = 100.0
+    
+    enabled: bool = True
 
 
 @dataclass
@@ -159,6 +186,12 @@ class DisplayConfig:
 
     # Custom text configuration
     text_configs: List['TextConfig'] = None
+
+    # Bar graph configuration
+    bar_configs: List['BarGraphConfig'] = None
+
+    # LCD refresh interval in seconds (how often stats update)
+    refresh_interval: float = 1.0
 
     # Text effects configuration
     # Shadow

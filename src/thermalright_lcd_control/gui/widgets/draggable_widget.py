@@ -926,3 +926,326 @@ class MetricWidget(DraggableWidget):
             "gpu_usage": "%"
         }
         return defaults.get(self.metric_name, "")
+
+
+class BarGraphWidget(QLabel):
+    """Draggable bar graph widget for displaying metrics as bars"""
+    
+    positionChanged = Signal(QPoint)
+    
+    def __init__(self, parent=None, widget_name="bar1"):
+        super().__init__(parent)
+        self.name = widget_name
+        self.enabled = False
+        self._dragging = False
+        self._is_hovered = False
+        
+        # Enable mouse tracking and transparent background for drag functionality
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setCursor(Qt.OpenHandCursor)
+        self._drag_start = QPoint()
+        
+        # Bar properties
+        self._metric_name = "cpu_usage"
+        self._width = 100
+        self._height = 16
+        self._orientation = "horizontal"
+        
+        # Colors
+        self._fill_color = QColor(0, 255, 0, 255)
+        self._background_color = QColor(50, 50, 50, 255)
+        self._border_color = QColor(255, 255, 255, 255)
+        
+        # Style
+        self._show_border = True
+        self._border_width = 1
+        self._corner_radius = 0
+        
+        # Value range
+        self._min_value = 0.0
+        self._max_value = 100.0
+        
+        # Current value for display
+        self._current_value = 50.0
+        
+        # Timer for updating value
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self._update_value)
+        self.update_timer.start(1000)
+        
+        self._set_initial_position()
+        self.update_display()
+    
+    def _set_initial_position(self):
+        """Set initial position based on widget name.
+        
+        Widget has 4px padding for selection border, so subtract padding
+        from desired bar position to get widget position.
+        """
+        border_padding = 4
+        # These are the desired bar positions
+        bar_positions = {
+            "bar1": (10, 50),
+            "bar2": (10, 75),
+            "bar3": (10, 100),
+            "bar4": (10, 125)
+        }
+        if self.name in bar_positions:
+            x, y = bar_positions[self.name]
+            # Widget position = bar position - padding
+            self.move(x - border_padding, y - border_padding)
+    
+    def _update_value(self):
+        """Update the current value from metrics"""
+        if not self.enabled:
+            return
+        
+        # Get value from metrics
+        try:
+            if self._metric_name.startswith("cpu"):
+                if self._metric_name == "cpu_usage":
+                    self._current_value = CpuMetrics.get_cpu_usage()
+                elif self._metric_name == "cpu_temperature":
+                    self._current_value = CpuMetrics.get_cpu_temperature()
+            elif self._metric_name.startswith("gpu"):
+                if self._metric_name == "gpu_usage":
+                    self._current_value = GpuMetrics.get_gpu_usage()
+                elif self._metric_name == "gpu_temperature":
+                    self._current_value = GpuMetrics.get_gpu_temperature()
+        except:
+            pass
+        
+        self.update_display()
+    
+    def set_enabled(self, enabled: bool):
+        """Enable or disable the widget"""
+        self.enabled = enabled
+        self.update_display()
+    
+    def update_display(self):
+        """Update the visual display of the bar"""
+        if not self.enabled:
+            self.hide()
+            return
+        
+        # Add padding for the selection border
+        border_padding = 4
+        total_width = self._width + border_padding * 2
+        total_height = self._height + border_padding * 2
+        
+        # Create pixmap with padding for border
+        pixmap = QPixmap(total_width, total_height)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Draw selection border if dragging or hovered
+        if self._dragging:
+            # Red border when dragging
+            painter.setBrush(QColor(231, 76, 60, 50))  # Semi-transparent red background
+            pen = QPen(QColor(231, 76, 60, 255))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            painter.drawRect(1, 1, total_width - 2, total_height - 2)
+        elif self._is_hovered:
+            # Blue border on hover
+            painter.setBrush(QColor(52, 152, 219, 40))  # Semi-transparent blue background
+            pen = QPen(QColor(52, 152, 219, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(1, 1, total_width - 2, total_height - 2)
+        
+        # Calculate fill amount
+        normalized = (self._current_value - self._min_value) / max(1, self._max_value - self._min_value)
+        normalized = max(0.0, min(1.0, normalized))
+        
+        # Offset for drawing the actual bar (inside the padding)
+        bar_x = border_padding
+        bar_y = border_padding
+        
+        # Draw background
+        painter.setBrush(self._background_color)
+        if self._show_border:
+            pen = QPen(self._border_color)
+            pen.setWidth(self._border_width)
+            painter.setPen(pen)
+        else:
+            painter.setPen(Qt.NoPen)
+        
+        if self._corner_radius > 0:
+            painter.drawRoundedRect(bar_x, bar_y, self._width, self._height, 
+                                   self._corner_radius, self._corner_radius)
+        else:
+            painter.drawRect(bar_x, bar_y, self._width, self._height)
+        
+        # Draw fill
+        painter.setBrush(self._fill_color)
+        painter.setPen(Qt.NoPen)
+        
+        if self._orientation == "horizontal":
+            fill_width = int(self._width * normalized)
+            if fill_width > 0:
+                if self._corner_radius > 0:
+                    painter.drawRoundedRect(bar_x, bar_y, fill_width, self._height,
+                                           min(self._corner_radius, fill_width // 2), 
+                                           self._corner_radius)
+                else:
+                    painter.drawRect(bar_x, bar_y, fill_width, self._height)
+        else:  # vertical
+            fill_height = int(self._height * normalized)
+            if fill_height > 0:
+                fill_y = bar_y + self._height - fill_height
+                if self._corner_radius > 0:
+                    painter.drawRoundedRect(bar_x, fill_y, self._width, fill_height,
+                                           self._corner_radius,
+                                           min(self._corner_radius, fill_height // 2))
+                else:
+                    painter.drawRect(bar_x, fill_y, self._width, fill_height)
+        
+        painter.end()
+        
+        self.setPixmap(pixmap)
+        self.setFixedSize(total_width, total_height)
+        self.show()
+    
+    def enterEvent(self, event):
+        """Handle mouse enter for hover feedback"""
+        self._is_hovered = True
+        self.update_display()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leave"""
+        self._is_hovered = False
+        self.update_display()
+        super().leaveEvent(event)
+    
+    # Mouse events for dragging
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self.enabled:
+            self._dragging = True
+            self._drag_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            self.update_display()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._dragging and self.enabled:
+            new_pos = self.pos() + event.pos() - self._drag_start
+            # Clamp to parent bounds
+            if self.parent():
+                parent_rect = self.parent().rect()
+                widget_rect = self.rect()
+                new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - widget_rect.width())))
+                new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
+            self.move(new_pos)
+            self.positionChanged.emit(new_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            self.setCursor(Qt.OpenHandCursor)
+            self.update_display()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    # Getters and setters for all properties
+    def get_metric_name(self) -> str:
+        return self._metric_name
+    
+    def set_metric_name(self, name: str):
+        self._metric_name = name
+        self._update_value()
+    
+    def get_width(self) -> int:
+        return self._width
+    
+    def set_width(self, width: int):
+        self._width = max(10, width)
+        self.update_display()
+    
+    def get_height(self) -> int:
+        return self._height
+    
+    def set_height(self, height: int):
+        self._height = max(5, height)
+        self.update_display()
+    
+    def get_orientation(self) -> str:
+        return self._orientation
+    
+    def set_orientation(self, orientation: str):
+        self._orientation = orientation
+        self.update_display()
+    
+    def get_fill_color(self) -> QColor:
+        return self._fill_color
+    
+    def set_fill_color(self, color: QColor):
+        self._fill_color = color
+        self.update_display()
+    
+    def get_background_color(self) -> QColor:
+        return self._background_color
+    
+    def set_background_color(self, color: QColor):
+        self._background_color = color
+        self.update_display()
+    
+    def get_border_color(self) -> QColor:
+        return self._border_color
+    
+    def set_border_color(self, color: QColor):
+        self._border_color = color
+        self.update_display()
+    
+    def get_show_border(self) -> bool:
+        return self._show_border
+    
+    def set_show_border(self, show: bool):
+        self._show_border = show
+        self.update_display()
+    
+    def get_border_width(self) -> int:
+        return self._border_width
+    
+    def set_border_width(self, width: int):
+        self._border_width = max(1, width)
+        self.update_display()
+    
+    def get_corner_radius(self) -> int:
+        return self._corner_radius
+    
+    def set_corner_radius(self, radius: int):
+        self._corner_radius = max(0, radius)
+        self.update_display()
+    
+    def get_min_value(self) -> float:
+        return self._min_value
+    
+    def set_min_value(self, value: float):
+        self._min_value = value
+        self.update_display()
+    
+    def get_max_value(self) -> float:
+        return self._max_value
+    
+    def set_max_value(self, value: float):
+        self._max_value = value
+        self.update_display()
+    
+    def get_position(self) -> tuple:
+        """Get position adjusted for border padding"""
+        # The widget has 4px padding for selection border, 
+        # so we add the padding to get the actual bar position
+        border_padding = 4
+        pos = self.pos()
+        return (pos.x() + border_padding, pos.y() + border_padding)

@@ -30,10 +30,9 @@ class FrameManager:
 
     # Supported video formats
     SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv', '.m4v']
-    DEFAULT_FRAME_DURATION = 2.0
-    REFRESH_METRICS_INTERVAL = 5.0
-    def __init__(self, config: DisplayConfig):
-        self.config = config
+    DEFAULT_FRAME_DURATION = 1.0  # Default refresh interval in seconds
+    REFRESH_METRICS_INTERVAL = 1.0  # How often to refresh metrics data
+    
     def __init__(self, config: DisplayConfig):
         self.config = config
         self.logger = get_service_logger()
@@ -42,11 +41,15 @@ class FrameManager:
         self.current_frame_index = 0
         self.background_frames = []
         self.gif_durations = []
-        self.frame_duration = self.DEFAULT_FRAME_DURATION
+        # Use config refresh_interval if set, otherwise default
+        self.frame_duration = config.refresh_interval if config.refresh_interval else self.DEFAULT_FRAME_DURATION
         self.frame_start_time = 0
         self.metrics_thread: Timer | None = None
         self.metrics_running = False
-        if len(config.metrics_configs) != 0:
+        # Check if we need metrics (for metrics_configs or bar_configs)
+        has_metrics = len(config.metrics_configs) != 0 if config.metrics_configs else False
+        has_bars = len(config.bar_configs) != 0 if config.bar_configs else False
+        if has_metrics or has_bars:
             # Initialize metrics collectors
             self.cpu_metrics = CpuMetrics()
             self.gpu_metrics = GpuMetrics()

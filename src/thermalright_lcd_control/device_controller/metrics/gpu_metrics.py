@@ -551,16 +551,29 @@ class GpuMetrics(Metrics):
     def get_frequency(self):
         try:
             if self.gpu_vendor == "nvidia":
-                return self._get_nvidia_frequency()
+                result = self._get_nvidia_frequency()
+                if result is not None:
+                    return result
+                # Return last cached value if current read failed
+                return self.gpu_freq
             if self.gpu_vendor == "amd":
-                return self._get_amd_frequency()
+                result = self._get_amd_frequency()
+                if result is not None:
+                    return result
+                # Return last cached value if current read failed
+                return self.gpu_freq
             if self.gpu_vendor == "intel":
-                return self._get_intel_frequency()
+                result = self._get_intel_frequency()
+                if result is not None:
+                    return result
+                # Return last cached value if current read failed
+                return self.gpu_freq
             self.logger.warning("No GPU detected for frequency")
             return None
         except Exception as e:
             self.logger.error(f"Error reading GPU frequency: {e}")
-            return None
+            # Return last cached value on exception
+            return self.gpu_freq
 
     def _get_nvidia_frequency(self):
         # Reduced timeout for nvidia-smi

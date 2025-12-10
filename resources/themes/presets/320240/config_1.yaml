@@ -1,70 +1,64 @@
 display:
   background:
-    path: ./resources/themes/backgrounds/y010.png
-    type: image
+    alpha: 1.0
+    color:
+      b: 0
+      g: 0
+      r: 0
+    enabled: true
+    path: /home/leeo/.config/thermalright-lcd-control/themes/backgrounds/d037.mp4
+    scale_mode: scaled_fill
+    type: video
+  bar_graphs: []
+  custom_texts: []
   date:
     color: '#FFFFFFFF'
-    enabled: false
-    font_size: 24
-    position:
-      x: 15
-      y: 3
-    text: ''
-  foreground:
-    alpha: 1.0
+    date_format: default
     enabled: true
-    path: ./resources/themes/foregrounds/{resolution}/006b.png
+    font_size: 18
+    position:
+      x: 40
+      y: 26
+    show_weekday: true
+    show_year: false
+    text: ''
+  font_family: Noto Sans Bold
+  foreground:
+    alpha: 0.5
+    enabled: false
+    path: null
     position:
       x: 0
-      y: 0
+      y: -2
   metrics:
-    configs:
-      - color: '#FFFFFFFF'
-        enabled: true
-        font_size: 24
-        format_string: '{label}{value}{unit}'
-        label: ''
-        name: cpu_temperature
-        position:
-          x: 54
-          y: 104
-        unit: °
-      - color: '#FFFFFFFF'
-        enabled: true
-        font_size: 24
-        format_string: '{label}{value}{unit}'
-        label: ''
-        name: gpu_temperature
-        position:
-          x: 253
-          y: 102
-        unit: °
-      - color: '#FFFFFFFF'
-        enabled: true
-        font_size: 24
-        format_string: '{label}{value}{unit}'
-        label: ''
-        name: cpu_frequency
-        position:
-          x: 89
-          y: 33
-        unit: MHZ
-      - color: '#FFFFFFFF'
-        enabled: true
-        font_size: 24
-        format_string: '{label}{value}{unit}'
-        label: ''
-        name: gpu_frequency
-        position:
-          x: 90
-          y: 171
-        unit: MHZ
-    enabled: true
+    configs: []
+    enabled: false
+  refresh_interval: 1.0
+  rotation: 0
+  text_effects:
+    gradient:
+      color1: '#FFFFFFFF'
+      color2: '#6B696CFF'
+      direction: vertical
+      enabled: true
+    outline:
+      color: '#000000FF'
+      enabled: true
+      width: 1
+    shadow:
+      blur: 3
+      color: '#00000080'
+      enabled: false
+      offset_x: 2
+      offset_y: 2
   time:
     color: '#FFFFFFFF'
     enabled: true
-    font_size: 24
+    font_size: 65
     position:
-      x: 153
-      y: 103
+      x: 69
+      y: 48
+    show_am_pm: false
+    show_seconds: false
     text: ''
+    use_24_hour: true

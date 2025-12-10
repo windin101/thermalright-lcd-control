@@ -124,6 +124,7 @@ class BarGraphConfig:
     width: int = 100  # Bar width in pixels
     height: int = 16  # Bar height in pixels
     orientation: str = "horizontal"  # horizontal or vertical
+    rotation: int = 0  # Rotation angle in degrees (0-359)
     
     # Colors (themeable)
     fill_color: Tuple[int, int, int, int] = (0, 255, 0, 255)  # Green fill
@@ -166,6 +167,7 @@ class CircularGraphConfig:
     thickness: int = 8  # Arc thickness in pixels
     start_angle: int = 135  # Start angle in degrees (0 = right, 90 = bottom)
     sweep_angle: int = 270  # Sweep angle in degrees (how much arc spans)
+    rotation: int = 0  # Rotation angle for the entire arc (0-359)
     
     # Colors (themeable)
     fill_color: Tuple[int, int, int, int] = (0, 255, 0, 255)  # Green fill

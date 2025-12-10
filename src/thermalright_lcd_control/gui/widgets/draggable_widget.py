@@ -1183,6 +1183,7 @@ class BarGraphWidget(QLabel):
         self._width = 100
         self._height = 16
         self._orientation = "horizontal"
+        self._rotation = 0  # Rotation angle in degrees (0-360)
         
         # Colors
         self._fill_color = QColor(0, 255, 0, 255)
@@ -1262,10 +1263,22 @@ class BarGraphWidget(QLabel):
             self.hide()
             return
         
+        import math
+        
         # Add padding for the selection border
         border_padding = 4
-        total_width = self._width + border_padding * 2
-        total_height = self._height + border_padding * 2
+        
+        # Calculate rotated bounding box size
+        angle_rad = math.radians(self._rotation)
+        cos_a = abs(math.cos(angle_rad))
+        sin_a = abs(math.sin(angle_rad))
+        
+        # Calculate bounding box dimensions after rotation
+        rotated_width = int(self._width * cos_a + self._height * sin_a)
+        rotated_height = int(self._width * sin_a + self._height * cos_a)
+        
+        total_width = rotated_width + border_padding * 2
+        total_height = rotated_height + border_padding * 2
         
         # Create pixmap with padding for border
         pixmap = QPixmap(total_width, total_height)
@@ -1294,9 +1307,18 @@ class BarGraphWidget(QLabel):
         normalized = (self._current_value - self._min_value) / max(1, self._max_value - self._min_value)
         normalized = max(0.0, min(1.0, normalized))
         
-        # Offset for drawing the actual bar (inside the padding)
-        bar_x = border_padding
-        bar_y = border_padding
+        # Apply rotation transformation
+        painter.save()
+        # Move to center of widget
+        painter.translate(total_width / 2, total_height / 2)
+        # Rotate around center
+        painter.rotate(self._rotation)
+        # Move back so bar is centered
+        painter.translate(-self._width / 2, -self._height / 2)
+        
+        # Now draw as if at origin (0, 0)
+        bar_x = 0
+        bar_y = 0
         
         # Draw background
         painter.setBrush(self._background_color)
@@ -1343,6 +1365,7 @@ class BarGraphWidget(QLabel):
                 else:
                     painter.drawRect(bar_x, fill_y, self._width, fill_height)
         
+        painter.restore()
         painter.end()
         
         self.setPixmap(pixmap)
@@ -1423,6 +1446,13 @@ class BarGraphWidget(QLabel):
     
     def set_orientation(self, orientation: str):
         self._orientation = orientation
+        self.update_display()
+    
+    def get_rotation(self) -> int:
+        return self._rotation
+    
+    def set_rotation(self, angle: int):
+        self._rotation = angle % 360
         self.update_display()
     
     def get_fill_color(self) -> QColor:
@@ -1529,6 +1559,7 @@ class CircularGraphWidget(QLabel):
         self._thickness = 8
         self._start_angle = 135  # Degrees (0 = 3 o'clock, counter-clockwise)
         self._sweep_angle = 270  # Degrees
+        self._rotation = 0  # Rotation angle for the entire arc (0-359)
         
         # Colors
         self._fill_color = QColor(0, 255, 0, 255)
@@ -1601,10 +1632,22 @@ class CircularGraphWidget(QLabel):
             self.hide()
             return
         
+        import math
+        
         # Add padding for the selection border
         border_padding = 4
         diameter = self._radius * 2
-        total_size = diameter + self._thickness + border_padding * 2
+        base_size = diameter + self._thickness + border_padding * 2
+        
+        # Calculate rotated bounding box size if rotation is applied
+        if self._rotation != 0:
+            angle_rad = math.radians(self._rotation)
+            cos_a = abs(math.cos(angle_rad))
+            sin_a = abs(math.sin(angle_rad))
+            rotated_size = int(base_size * cos_a + base_size * sin_a)
+            total_size = max(base_size, rotated_size)
+        else:
+            total_size = base_size
         
         # Create pixmap with padding for border
         pixmap = QPixmap(total_size, total_size)
@@ -1626,6 +1669,13 @@ class CircularGraphWidget(QLabel):
             pen.setWidth(2)
             painter.setPen(pen)
             painter.drawRect(1, 1, total_size - 2, total_size - 2)
+        
+        # Apply rotation if needed
+        if self._rotation != 0:
+            painter.save()
+            painter.translate(total_size / 2, total_size / 2)
+            painter.rotate(self._rotation)
+            painter.translate(-total_size / 2, -total_size / 2)
         
         # Calculate center of arc within pixmap
         center_x = total_size // 2
@@ -1689,6 +1739,10 @@ class CircularGraphWidget(QLabel):
             inner_left = center_x - self._radius + self._thickness // 2
             inner_top = center_y - self._radius + self._thickness // 2
             painter.drawArc(inner_left, inner_top, inner_rect_size, inner_rect_size, start_angle_qt, sweep_angle_qt)
+        
+        # Restore painter state if rotation was applied
+        if self._rotation != 0:
+            painter.restore()
         
         painter.end()
         
@@ -1772,7 +1826,17 @@ class CircularGraphWidget(QLabel):
         return self._sweep_angle
     
     def set_sweep_angle(self, angle: int):
-        self._sweep_angle = max(1, min(360, angle))
+        # Allow negative values for clockwise direction, clamp magnitude to 360
+        self._sweep_angle = max(-360, min(360, angle))
+        if self._sweep_angle == 0:
+            self._sweep_angle = 1  # Avoid zero sweep
+        self.update_display()
+    
+    def get_rotation(self) -> int:
+        return self._rotation
+    
+    def set_rotation(self, angle: int):
+        self._rotation = angle % 360
         self.update_display()
     
     def get_fill_color(self) -> QColor:

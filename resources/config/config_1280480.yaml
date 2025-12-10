@@ -1,0 +1,325 @@
+# Configuration for Thermalright Trofeo Vision (1280x480)
+display:
+  rotation: 0
+  font_family: "DejaVu Sans"
+  background:
+    path: ./resources/themes/backgrounds/a001.mp4
+    type: video
+    enabled: true
+    color:
+      r: 0
+      g: 0
+      b: 0
+  foreground:
+    alpha: 1.0
+    enabled: false
+    path: ./resources/themes/foregrounds/1280480/default.png
+    position:
+      x: 0
+      y: 0
+  date:
+    color: '#FFFFFFFF'
+    enabled: true
+    font_size: 28
+    position:
+      x: 20
+      y: 10
+    format: default
+    show_weekday: true
+    show_year: false
+  time:
+    color: '#FFFFFFFF'
+    enabled: true
+    font_size: 48
+    position:
+      x: 20
+      y: 50
+    use_24_hour: true
+    show_seconds: false
+    show_am_pm: false
+  metrics:
+    enabled: true
+    configs:
+    # CPU metrics - left section
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'CPU '
+      name: cpu_temperature
+      position:
+        x: 200
+        y: 150
+      unit: °C
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'CPU '
+      name: cpu_usage
+      position:
+        x: 200
+        y: 200
+      unit: '%'
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: ''
+      name: cpu_frequency
+      position:
+        x: 200
+        y: 250
+      unit: MHz
+      freq_format: mhz
+    # GPU metrics - center section
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'GPU '
+      name: gpu_temperature
+      position:
+        x: 500
+        y: 150
+      unit: °C
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'GPU '
+      name: gpu_usage
+      position:
+        x: 500
+        y: 200
+      unit: '%'
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: ''
+      name: gpu_frequency
+      position:
+        x: 500
+        y: 250
+      unit: MHz
+      freq_format: mhz
+    # RAM metrics - right section
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 32
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'RAM '
+      name: ram_percent
+      position:
+        x: 800
+        y: 150
+      unit: '%'
+    - color: '#FFFFFFFF'
+      enabled: true
+      font_size: 24
+      label_font_size: 18
+      label_position: left
+      format_string: '{label}{value}{unit}'
+      label: 'VRAM '
+      name: gpu_mem_percent
+      position:
+        x: 800
+        y: 200
+      unit: '%'
+  # Custom text widgets
+  custom_texts: []
+  # Bar graphs - take advantage of the wide screen
+  bar_graphs:
+    - name: cpu_bar1
+      enabled: true
+      metric_name: cpu_usage
+      position:
+        x: 200
+        y: 350
+      width: 250
+      height: 20
+      orientation: horizontal
+      corner_radius: 5
+      fill_color: '#00FF00FF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00FF00FF'
+        - threshold: 50
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: gpu_bar1
+      enabled: true
+      metric_name: gpu_usage
+      position:
+        x: 500
+        y: 350
+      width: 250
+      height: 20
+      orientation: horizontal
+      corner_radius: 5
+      fill_color: '#00FF00FF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00FF00FF'
+        - threshold: 50
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: cpu_bar2
+      enabled: true
+      metric_name: cpu_temperature
+      position:
+        x: 200
+        y: 400
+      width: 250
+      height: 20
+      orientation: horizontal
+      corner_radius: 5
+      fill_color: '#00AAFFFF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00AAFFFF'
+        - threshold: 60
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: gpu_bar2
+      enabled: true
+      metric_name: gpu_temperature
+      position:
+        x: 500
+        y: 400
+      width: 250
+      height: 20
+      orientation: horizontal
+      corner_radius: 5
+      fill_color: '#00AAFFFF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00AAFFFF'
+        - threshold: 60
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+  # Circular graphs - can fit more with wide screen
+  circular_graphs:
+    - name: cpu_arc1
+      enabled: true
+      metric_name: cpu_usage
+      position:
+        x: 1050
+        y: 120
+      radius: 60
+      thickness: 12
+      start_angle: 135
+      sweep_angle: 270
+      fill_color: '#00FF00FF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      show_border: false
+      border_width: 1
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00FF00FF'
+        - threshold: 50
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: gpu_arc1
+      enabled: true
+      metric_name: gpu_usage
+      position:
+        x: 1200
+        y: 120
+      radius: 60
+      thickness: 12
+      start_angle: 135
+      sweep_angle: 270
+      fill_color: '#00FF00FF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      show_border: false
+      border_width: 1
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00FF00FF'
+        - threshold: 50
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: cpu_arc2
+      enabled: true
+      metric_name: cpu_temperature
+      position:
+        x: 1050
+        y: 320
+      radius: 60
+      thickness: 12
+      start_angle: 135
+      sweep_angle: 270
+      fill_color: '#00AAFFFF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      show_border: false
+      border_width: 1
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00AAFFFF'
+        - threshold: 60
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'
+    - name: gpu_arc2
+      enabled: true
+      metric_name: gpu_temperature
+      position:
+        x: 1200
+        y: 320
+      radius: 60
+      thickness: 12
+      start_angle: 135
+      sweep_angle: 270
+      fill_color: '#00AAFFFF'
+      background_color: '#323232FF'
+      border_color: '#FFFFFFFF'
+      show_border: false
+      border_width: 1
+      use_gradient: true
+      gradient_colors:
+        - threshold: 0
+          color: '#00AAFFFF'
+        - threshold: 60
+          color: '#FFFF00FF'
+        - threshold: 80
+          color: '#FF0000FF'

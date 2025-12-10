@@ -61,11 +61,11 @@ def main(config_file=None):
     
     app.setApplicationName("thermalright-lcd-control")
     app.setApplicationDisplayName("Thermalright LCD Control")
-    app.setDesktopFileName("thermalright-lcd-control.desktop")
+    app.setDesktopFileName("thermalright-lcd-control")
 
     # Use default config file if none provided
     if config_file is None:
-        config_file = "gui_config.yaml"
+        config_file = os.path.expanduser("~/.config/thermalright-lcd-control/gui_config.yaml")
 
     # Check for supported device presence
     detector = USBDeviceDetector(config_file)

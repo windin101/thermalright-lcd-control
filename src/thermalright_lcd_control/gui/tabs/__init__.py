@@ -7,5 +7,8 @@ GUI tabs package
 
 from .media_tab import MediaTab
 from .themes_tab import ThemesTab
+from .cpu_tab import CPUTab
+from .gpu_tab import GPUTab
+from .info_tab import InfoTab
 
-__all__ = ['MediaTab', 'ThemesTab']
+__all__ = ['MediaTab', 'ThemesTab', 'CPUTab', 'GPUTab', 'InfoTab']

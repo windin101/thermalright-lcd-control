@@ -12,6 +12,9 @@ from thermalright_lcd_control.gui.components.controls_manager import ControlsMan
 from thermalright_lcd_control.gui.components.preview_manager import PreviewManager
 from thermalright_lcd_control.gui.tabs.media_tab import MediaTab
 from thermalright_lcd_control.gui.tabs.themes_tab import ThemesTab
+from thermalright_lcd_control.gui.tabs.cpu_tab import CPUTab
+from thermalright_lcd_control.gui.tabs.gpu_tab import GPUTab
+from thermalright_lcd_control.gui.tabs.info_tab import InfoTab
 from thermalright_lcd_control.gui.utils.config_loader import load_config
 from thermalright_lcd_control.gui.widgets.draggable_widget import *
 from thermalright_lcd_control.common.logging_config import get_gui_logger
@@ -231,23 +234,25 @@ class MediaPreviewUI(QMainWindow):
             widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
             self.text_widgets[widget_name] = widget
 
-        # Bar graph widgets
+        # Bar graph widgets (CPU and GPU)
         self.bar_widgets = {}
-        for i in range(1, 5):
-            widget_name = f"bar{i}"
-            widget = BarGraphWidget(parent=self.preview_widget, widget_name=widget_name)
-            widget.set_enabled(False)
-            widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
-            self.bar_widgets[widget_name] = widget
+        for prefix in ["cpu", "gpu"]:
+            for i in range(1, 3):  # 2 bars each for CPU and GPU
+                widget_name = f"{prefix}_bar{i}"
+                widget = BarGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+                widget.set_enabled(False)
+                widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+                self.bar_widgets[widget_name] = widget
 
-        # Circular graph widgets
+        # Circular graph widgets (CPU and GPU)
         self.arc_widgets = {}
-        for i in range(1, 5):
-            widget_name = f"arc{i}"
-            widget = CircularGraphWidget(parent=self.preview_widget, widget_name=widget_name)
-            widget.set_enabled(False)
-            widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
-            self.arc_widgets[widget_name] = widget
+        for prefix in ["cpu", "gpu"]:
+            for i in range(1, 3):  # 2 arcs each for CPU and GPU
+                widget_name = f"{prefix}_arc{i}"
+                widget = CircularGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+                widget.set_enabled(False)
+                widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+                self.arc_widgets[widget_name] = widget
 
         # Ensure overlay widgets are above the foreground drag handle
         self._raise_overlay_widgets()
@@ -307,7 +312,6 @@ class MediaPreviewUI(QMainWindow):
         self.tab_widget = QTabWidget()
 
         # Themes tab (moved to first position)
-
         themes_dir = f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{self.dev_width}{self.dev_height}"
         self.themes_tab = ThemesTab(themes_dir, dev_width=self.dev_width, dev_height=self.dev_height, config=self.config)
         self.themes_tab.theme_selected.connect(self.on_theme_selected)
@@ -326,7 +330,45 @@ class MediaPreviewUI(QMainWindow):
             self.media_tabs.append(tab)
             self.tab_widget.addTab(tab, tab_name)
 
+        # CPU Tab - metrics and graphs for CPU
+        self.cpu_tab = CPUTab(self, self.metric_widgets)
+        self.tab_widget.addTab(self.cpu_tab, "CPU")
+
+        # GPU Tab - metrics and graphs for GPU
+        self.gpu_tab = GPUTab(self, self.metric_widgets)
+        self.tab_widget.addTab(self.gpu_tab, "GPU")
+
+        # Info Tab - Time, Date, Custom Text, RAM
+        self.info_tab = InfoTab(self, self.metric_widgets)
+        self.tab_widget.addTab(self.info_tab, "Info")
+
         parent_layout.addWidget(self.tab_widget)
+
+    def _get_tab_for_bar(self, bar_name):
+        """Get the tab that contains controls for a bar graph"""
+        if bar_name.startswith("cpu_"):
+            return self.cpu_tab if hasattr(self, 'cpu_tab') else None
+        elif bar_name.startswith("gpu_"):
+            return self.gpu_tab if hasattr(self, 'gpu_tab') else None
+        return None
+
+    def _get_tab_for_arc(self, arc_name):
+        """Get the tab that contains controls for a circular graph"""
+        if arc_name.startswith("cpu_"):
+            return self.cpu_tab if hasattr(self, 'cpu_tab') else None
+        elif arc_name.startswith("gpu_"):
+            return self.gpu_tab if hasattr(self, 'gpu_tab') else None
+        return None
+
+    def _get_tab_for_metric(self, metric_name):
+        """Get the tab that contains controls for a metric"""
+        if metric_name.startswith("cpu_"):
+            return self.cpu_tab if hasattr(self, 'cpu_tab') else None
+        elif metric_name.startswith("gpu_"):
+            return self.gpu_tab if hasattr(self, 'gpu_tab') else None
+        elif metric_name.startswith("ram_"):
+            return self.info_tab if hasattr(self, 'info_tab') else None
+        return None
 
     def on_theme_selected(self, theme_path: str):
         """Handle theme selection"""
@@ -683,9 +725,10 @@ class MediaPreviewUI(QMainWindow):
                 label_position = metric_config.get('label_position', 'left')
                 widget.set_label_position(label_position)
                 
-                # Update label position combo in controls
-                if self.controls_manager and metric_name in self.controls_manager.metric_label_position_combos:
-                    combo = self.controls_manager.metric_label_position_combos[metric_name]
+                # Update label position combo in the appropriate tab
+                tab = self._get_tab_for_metric(metric_name)
+                if tab and metric_name in tab.metric_label_position_combos:
+                    combo = tab.metric_label_position_combos[metric_name]
                     index = combo.findData(label_position)
                     if index >= 0:
                         combo.setCurrentIndex(index)
@@ -697,27 +740,27 @@ class MediaPreviewUI(QMainWindow):
 
                 if font_size:
                     widget.set_font_size(font_size)
-                    # Update font size spinbox in controls
-                    if self.controls_manager and hasattr(self.controls_manager, 'metric_font_size_spins'):
-                        if metric_name in self.controls_manager.metric_font_size_spins:
-                            self.controls_manager.metric_font_size_spins[metric_name].setValue(font_size)
+                    # Update font size spinbox in the appropriate tab
+                    if tab and hasattr(tab, 'metric_font_size_spins'):
+                        if metric_name in tab.metric_font_size_spins:
+                            tab.metric_font_size_spins[metric_name].setValue(font_size)
 
                 if label_font_size:
                     widget.set_label_font_size(label_font_size)
-                    # Update label font size spinbox in controls
-                    if self.controls_manager and hasattr(self.controls_manager, 'metric_label_font_size_spins'):
-                        if metric_name in self.controls_manager.metric_label_font_size_spins:
-                            self.controls_manager.metric_label_font_size_spins[metric_name].setValue(label_font_size)
+                    # Update label font size spinbox in the appropriate tab
+                    if tab and hasattr(tab, 'metric_label_font_size_spins'):
+                        if metric_name in tab.metric_label_font_size_spins:
+                            tab.metric_label_font_size_spins[metric_name].setValue(label_font_size)
 
                 # Apply frequency format for frequency metrics
                 if 'frequency' in metric_name:
                     freq_format = metric_config.get('freq_format', 'mhz')
                     if hasattr(widget, 'set_freq_format'):
                         widget.set_freq_format(freq_format)
-                    # Update frequency format combo in controls
-                    if self.controls_manager and hasattr(self.controls_manager, 'metric_freq_format_combos'):
-                        if metric_name in self.controls_manager.metric_freq_format_combos:
-                            combo = self.controls_manager.metric_freq_format_combos[metric_name]
+                    # Update frequency format combo in the appropriate tab
+                    if tab and hasattr(tab, 'metric_freq_format_combos'):
+                        if metric_name in tab.metric_freq_format_combos:
+                            combo = tab.metric_freq_format_combos[metric_name]
                             index = combo.findData(freq_format)
                             if index >= 0:
                                 combo.setCurrentIndex(index)
@@ -777,16 +820,16 @@ class MediaPreviewUI(QMainWindow):
                 font_size = text_config.get('font_size')
                 if font_size:
                     widget.set_font_size(font_size)
-                    if self.controls_manager and hasattr(self.controls_manager, 'text_font_size_spins'):
-                        if text_name in self.controls_manager.text_font_size_spins:
-                            self.controls_manager.text_font_size_spins[text_name].setValue(font_size)
+                    if hasattr(self, 'info_tab') and self.info_tab and hasattr(self.info_tab, 'text_font_size_spins'):
+                        if text_name in self.info_tab.text_font_size_spins:
+                            self.info_tab.text_font_size_spins[text_name].setValue(font_size)
 
-                # Update controls
-                if self.controls_manager:
-                    if hasattr(self.controls_manager, 'text_checkboxes') and text_name in self.controls_manager.text_checkboxes:
-                        self.controls_manager.text_checkboxes[text_name].setChecked(enabled)
-                    if hasattr(self.controls_manager, 'text_inputs') and text_name in self.controls_manager.text_inputs:
-                        self.controls_manager.text_inputs[text_name].setText(text)
+                # Update controls in the Info tab
+                if hasattr(self, 'info_tab') and self.info_tab:
+                    if hasattr(self.info_tab, 'text_checkboxes') and text_name in self.info_tab.text_checkboxes:
+                        self.info_tab.text_checkboxes[text_name].setChecked(enabled)
+                    if hasattr(self.info_tab, 'text_inputs') and text_name in self.info_tab.text_inputs:
+                        self.info_tab.text_inputs[text_name].setText(text)
 
                 widget.apply_style(self.text_style)
                 widget.update_display()
@@ -804,11 +847,12 @@ class MediaPreviewUI(QMainWindow):
             # First disable all bar widgets and update their checkboxes
             for bar_name, bar_widget in self.bar_widgets.items():
                 bar_widget.set_enabled(False)
-                # Also update the checkbox in controls
-                if self.controls_manager and bar_name in self.controls_manager.bar_checkboxes:
-                    self.controls_manager.bar_checkboxes[bar_name].blockSignals(True)
-                    self.controls_manager.bar_checkboxes[bar_name].setChecked(False)
-                    self.controls_manager.bar_checkboxes[bar_name].blockSignals(False)
+                # Also update the checkbox in the appropriate tab
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_checkboxes:
+                    tab.bar_checkboxes[bar_name].blockSignals(True)
+                    tab.bar_checkboxes[bar_name].setChecked(False)
+                    tab.bar_checkboxes[bar_name].blockSignals(False)
 
             # Apply configuration for each bar widget
             for bar_config in bar_configs:
@@ -839,6 +883,7 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_width(bar_config.get('width', 100))
                 widget.set_height(bar_config.get('height', 16))
                 widget.set_orientation(bar_config.get('orientation', 'horizontal'))
+                widget.set_rotation(bar_config.get('rotation', 0))
                 widget.set_corner_radius(bar_config.get('corner_radius', 0))
 
                 # Apply colors (use hex_to_qcolor to properly parse RRGGBBAA format)
@@ -849,34 +894,34 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_background_color(self.hex_to_qcolor(bg_color) or QColor(50, 50, 50))
                 widget.set_border_color(self.hex_to_qcolor(border_color) or QColor(255, 255, 255))
 
-                # Update controls
-                if self.controls_manager:
-                    if bar_name in self.controls_manager.bar_checkboxes:
-                        self.controls_manager.bar_checkboxes[bar_name].setChecked(enabled)
-                    if bar_name in self.controls_manager.bar_metric_combos:
-                        idx = self.controls_manager.bar_metric_combos[bar_name].findText(metric_name)
+                # Update controls in the appropriate tab
+                tab = self._get_tab_for_bar(bar_name)
+                if tab:
+                    if bar_name in tab.bar_checkboxes:
+                        tab.bar_checkboxes[bar_name].setChecked(enabled)
+                    if bar_name in tab.bar_metric_combos:
+                        idx = tab.bar_metric_combos[bar_name].findData(metric_name)
                         if idx >= 0:
-                            self.controls_manager.bar_metric_combos[bar_name].setCurrentIndex(idx)
-                    if bar_name in self.controls_manager.bar_width_spins:
-                        self.controls_manager.bar_width_spins[bar_name].setValue(bar_config.get('width', 100))
-                    if bar_name in self.controls_manager.bar_height_spins:
-                        self.controls_manager.bar_height_spins[bar_name].setValue(bar_config.get('height', 16))
-                    if bar_name in self.controls_manager.bar_corner_radius_spins:
-                        self.controls_manager.bar_corner_radius_spins[bar_name].setValue(bar_config.get('corner_radius', 0))
-                    if bar_name in self.controls_manager.bar_orientation_combos:
+                            tab.bar_metric_combos[bar_name].setCurrentIndex(idx)
+                    if bar_name in tab.bar_width_spins:
+                        tab.bar_width_spins[bar_name].setValue(bar_config.get('width', 100))
+                    if bar_name in tab.bar_height_spins:
+                        tab.bar_height_spins[bar_name].setValue(bar_config.get('height', 16))
+                    if bar_name in tab.bar_corner_radius_spins:
+                        tab.bar_corner_radius_spins[bar_name].setValue(bar_config.get('corner_radius', 0))
+                    if bar_name in tab.bar_orientation_combos:
                         orientation = bar_config.get('orientation', 'horizontal')
-                        idx = self.controls_manager.bar_orientation_combos[bar_name].findData(orientation)
+                        idx = tab.bar_orientation_combos[bar_name].findData(orientation)
                         if idx >= 0:
-                            self.controls_manager.bar_orientation_combos[bar_name].setCurrentIndex(idx)
-                    if bar_name in self.controls_manager.bar_fill_color_btns:
-                        self.controls_manager.bar_fill_color_btns[bar_name].setStyleSheet(
+                            tab.bar_orientation_combos[bar_name].setCurrentIndex(idx)
+                    if bar_name in tab.bar_rotation_spins:
+                        tab.bar_rotation_spins[bar_name].setValue(bar_config.get('rotation', 0))
+                    if bar_name in tab.bar_fill_color_btns:
+                        tab.bar_fill_color_btns[bar_name].setStyleSheet(
                             f"background-color: {fill_color[:7]}; border: 1px solid #888; border-radius: 3px;")
-                    if bar_name in self.controls_manager.bar_bg_color_btns:
-                        self.controls_manager.bar_bg_color_btns[bar_name].setStyleSheet(
+                    if bar_name in tab.bar_bg_color_btns:
+                        tab.bar_bg_color_btns[bar_name].setStyleSheet(
                             f"background-color: {bg_color[:7]}; border: 1px solid #888; border-radius: 3px;")
-                    if bar_name in self.controls_manager.bar_border_color_btns:
-                        self.controls_manager.bar_border_color_btns[bar_name].setStyleSheet(
-                            f"background-color: {border_color[:7]}; border: 1px solid #888; border-radius: 3px;")
 
                 # Apply gradient settings
                 use_gradient = bar_config.get('use_gradient', False)
@@ -893,39 +938,39 @@ class MediaPreviewUI(QMainWindow):
                         converted.append((threshold, rgba))
                     widget.set_gradient_colors(converted)
                     
-                    # Update gradient UI controls
-                    if self.controls_manager:
+                    # Update gradient UI controls in the appropriate tab
+                    if tab:
                         # Update threshold spinboxes
-                        if len(converted) > 1 and bar_name in self.controls_manager.bar_gradient_mid_spins:
-                            self.controls_manager.bar_gradient_mid_spins[bar_name].blockSignals(True)
-                            self.controls_manager.bar_gradient_mid_spins[bar_name].setValue(int(converted[1][0]))
-                            self.controls_manager.bar_gradient_mid_spins[bar_name].blockSignals(False)
-                        if len(converted) > 2 and bar_name in self.controls_manager.bar_gradient_high_spins:
-                            self.controls_manager.bar_gradient_high_spins[bar_name].blockSignals(True)
-                            self.controls_manager.bar_gradient_high_spins[bar_name].setValue(int(converted[2][0]))
-                            self.controls_manager.bar_gradient_high_spins[bar_name].blockSignals(False)
+                        if len(converted) > 1 and bar_name in tab.bar_gradient_mid_spins:
+                            tab.bar_gradient_mid_spins[bar_name].blockSignals(True)
+                            tab.bar_gradient_mid_spins[bar_name].setValue(int(converted[1][0]))
+                            tab.bar_gradient_mid_spins[bar_name].blockSignals(False)
+                        if len(converted) > 2 and bar_name in tab.bar_gradient_high_spins:
+                            tab.bar_gradient_high_spins[bar_name].blockSignals(True)
+                            tab.bar_gradient_high_spins[bar_name].setValue(int(converted[2][0]))
+                            tab.bar_gradient_high_spins[bar_name].blockSignals(False)
                         # Update color buttons
-                        if len(converted) > 0 and bar_name in self.controls_manager.bar_gradient_low_color_btns:
+                        if len(converted) > 0 and bar_name in tab.bar_gradient_low_color_btns:
                             c = converted[0][1]
-                            self.controls_manager.bar_gradient_low_color_btns[bar_name].setStyleSheet(
+                            tab.bar_gradient_low_color_btns[bar_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
-                        if len(converted) > 1 and bar_name in self.controls_manager.bar_gradient_mid_color_btns:
+                        if len(converted) > 1 and bar_name in tab.bar_gradient_mid_color_btns:
                             c = converted[1][1]
-                            self.controls_manager.bar_gradient_mid_color_btns[bar_name].setStyleSheet(
+                            tab.bar_gradient_mid_color_btns[bar_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
-                        if len(converted) > 2 and bar_name in self.controls_manager.bar_gradient_high_color_btns:
+                        if len(converted) > 2 and bar_name in tab.bar_gradient_high_color_btns:
                             c = converted[2][1]
-                            self.controls_manager.bar_gradient_high_color_btns[bar_name].setStyleSheet(
+                            tab.bar_gradient_high_color_btns[bar_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
                 
-                if self.controls_manager and bar_name in self.controls_manager.bar_gradient_checkboxes:
-                    self.controls_manager.bar_gradient_checkboxes[bar_name].setChecked(use_gradient)
+                if tab and bar_name in tab.bar_gradient_checkboxes:
+                    tab.bar_gradient_checkboxes[bar_name].setChecked(use_gradient)
                     # Show/hide gradient row based on loaded state
-                    if bar_name in self.controls_manager.bar_gradient_rows:
+                    if bar_name in tab.bar_gradient_rows:
                         if use_gradient:
-                            self.controls_manager.bar_gradient_rows[bar_name].show()
+                            tab.bar_gradient_rows[bar_name].show()
                         else:
-                            self.controls_manager.bar_gradient_rows[bar_name].hide()
+                            tab.bar_gradient_rows[bar_name].hide()
 
                 widget.update_display()
 
@@ -943,10 +988,11 @@ class MediaPreviewUI(QMainWindow):
             for arc_name, arc_widget in self.arc_widgets.items():
                 arc_widget.set_enabled(False)
                 # Also update the checkbox in controls
-                if self.controls_manager and arc_name in self.controls_manager.arc_checkboxes:
-                    self.controls_manager.arc_checkboxes[arc_name].blockSignals(True)
-                    self.controls_manager.arc_checkboxes[arc_name].setChecked(False)
-                    self.controls_manager.arc_checkboxes[arc_name].blockSignals(False)
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_checkboxes:
+                    tab.arc_checkboxes[arc_name].blockSignals(True)
+                    tab.arc_checkboxes[arc_name].setChecked(False)
+                    tab.arc_checkboxes[arc_name].blockSignals(False)
 
             # Apply configuration for each arc widget
             for arc_config in arc_configs:
@@ -985,6 +1031,7 @@ class MediaPreviewUI(QMainWindow):
                 # Apply angles
                 widget.set_start_angle(arc_config.get('start_angle', 135))
                 widget.set_sweep_angle(arc_config.get('sweep_angle', 270))
+                widget.set_rotation(arc_config.get('rotation', 0))
 
                 # Apply colors (use hex_to_qcolor to properly parse RRGGBBAA format)
                 fill_color = arc_config.get('fill_color', '#00FF00FF')
@@ -998,31 +1045,31 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_show_border(arc_config.get('show_border', False))
                 widget.set_border_width(arc_config.get('border_width', 1))
 
-                # Update controls
-                if self.controls_manager:
-                    if arc_name in self.controls_manager.arc_checkboxes:
-                        self.controls_manager.arc_checkboxes[arc_name].setChecked(enabled)
-                    if arc_name in self.controls_manager.arc_metric_combos:
-                        idx = self.controls_manager.arc_metric_combos[arc_name].findText(metric_name)
+                # Update controls in the appropriate tab
+                tab = self._get_tab_for_arc(arc_name)
+                if tab:
+                    if arc_name in tab.arc_checkboxes:
+                        tab.arc_checkboxes[arc_name].setChecked(enabled)
+                    if arc_name in tab.arc_metric_combos:
+                        idx = tab.arc_metric_combos[arc_name].findData(metric_name)
                         if idx >= 0:
-                            self.controls_manager.arc_metric_combos[arc_name].setCurrentIndex(idx)
-                    if arc_name in self.controls_manager.arc_radius_spins:
-                        self.controls_manager.arc_radius_spins[arc_name].setValue(radius)
-                    if arc_name in self.controls_manager.arc_thickness_spins:
-                        self.controls_manager.arc_thickness_spins[arc_name].setValue(thickness)
-                    if arc_name in self.controls_manager.arc_start_angle_spins:
-                        self.controls_manager.arc_start_angle_spins[arc_name].setValue(arc_config.get('start_angle', 135))
-                    if arc_name in self.controls_manager.arc_sweep_angle_spins:
-                        self.controls_manager.arc_sweep_angle_spins[arc_name].setValue(arc_config.get('sweep_angle', 270))
-                    if arc_name in self.controls_manager.arc_fill_color_btns:
-                        self.controls_manager.arc_fill_color_btns[arc_name].setStyleSheet(
+                            tab.arc_metric_combos[arc_name].setCurrentIndex(idx)
+                    if arc_name in tab.arc_radius_spins:
+                        tab.arc_radius_spins[arc_name].setValue(radius)
+                    if arc_name in tab.arc_thickness_spins:
+                        tab.arc_thickness_spins[arc_name].setValue(thickness)
+                    if arc_name in tab.arc_start_angle_spins:
+                        tab.arc_start_angle_spins[arc_name].setValue(arc_config.get('start_angle', 135))
+                    if arc_name in tab.arc_sweep_angle_spins:
+                        tab.arc_sweep_angle_spins[arc_name].setValue(arc_config.get('sweep_angle', 270))
+                    if arc_name in tab.arc_rotation_spins:
+                        tab.arc_rotation_spins[arc_name].setValue(arc_config.get('rotation', 0))
+                    if arc_name in tab.arc_fill_color_btns:
+                        tab.arc_fill_color_btns[arc_name].setStyleSheet(
                             f"background-color: {fill_color[:7]}; border: 1px solid #888; border-radius: 3px;")
-                    if arc_name in self.controls_manager.arc_bg_color_btns:
-                        self.controls_manager.arc_bg_color_btns[arc_name].setStyleSheet(
+                    if arc_name in tab.arc_bg_color_btns:
+                        tab.arc_bg_color_btns[arc_name].setStyleSheet(
                             f"background-color: {bg_color[:7]}; border: 1px solid #888; border-radius: 3px;")
-                    if arc_name in self.controls_manager.arc_border_color_btns:
-                        self.controls_manager.arc_border_color_btns[arc_name].setStyleSheet(
-                            f"background-color: {border_color[:7]}; border: 1px solid #888; border-radius: 3px;")
 
                 # Apply gradient settings
                 use_gradient = arc_config.get('use_gradient', False)
@@ -1039,39 +1086,39 @@ class MediaPreviewUI(QMainWindow):
                         converted.append((threshold, rgba))
                     widget.set_gradient_colors(converted)
                     
-                    # Update gradient UI controls
-                    if self.controls_manager:
+                    # Update gradient UI controls in the appropriate tab
+                    if tab:
                         # Update threshold spinboxes
-                        if len(converted) > 1 and arc_name in self.controls_manager.arc_gradient_mid_spins:
-                            self.controls_manager.arc_gradient_mid_spins[arc_name].blockSignals(True)
-                            self.controls_manager.arc_gradient_mid_spins[arc_name].setValue(int(converted[1][0]))
-                            self.controls_manager.arc_gradient_mid_spins[arc_name].blockSignals(False)
-                        if len(converted) > 2 and arc_name in self.controls_manager.arc_gradient_high_spins:
-                            self.controls_manager.arc_gradient_high_spins[arc_name].blockSignals(True)
-                            self.controls_manager.arc_gradient_high_spins[arc_name].setValue(int(converted[2][0]))
-                            self.controls_manager.arc_gradient_high_spins[arc_name].blockSignals(False)
+                        if len(converted) > 1 and arc_name in tab.arc_gradient_mid_spins:
+                            tab.arc_gradient_mid_spins[arc_name].blockSignals(True)
+                            tab.arc_gradient_mid_spins[arc_name].setValue(int(converted[1][0]))
+                            tab.arc_gradient_mid_spins[arc_name].blockSignals(False)
+                        if len(converted) > 2 and arc_name in tab.arc_gradient_high_spins:
+                            tab.arc_gradient_high_spins[arc_name].blockSignals(True)
+                            tab.arc_gradient_high_spins[arc_name].setValue(int(converted[2][0]))
+                            tab.arc_gradient_high_spins[arc_name].blockSignals(False)
                         # Update color buttons
-                        if len(converted) > 0 and arc_name in self.controls_manager.arc_gradient_low_color_btns:
+                        if len(converted) > 0 and arc_name in tab.arc_gradient_low_color_btns:
                             c = converted[0][1]
-                            self.controls_manager.arc_gradient_low_color_btns[arc_name].setStyleSheet(
+                            tab.arc_gradient_low_color_btns[arc_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
-                        if len(converted) > 1 and arc_name in self.controls_manager.arc_gradient_mid_color_btns:
+                        if len(converted) > 1 and arc_name in tab.arc_gradient_mid_color_btns:
                             c = converted[1][1]
-                            self.controls_manager.arc_gradient_mid_color_btns[arc_name].setStyleSheet(
+                            tab.arc_gradient_mid_color_btns[arc_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
-                        if len(converted) > 2 and arc_name in self.controls_manager.arc_gradient_high_color_btns:
+                        if len(converted) > 2 and arc_name in tab.arc_gradient_high_color_btns:
                             c = converted[2][1]
-                            self.controls_manager.arc_gradient_high_color_btns[arc_name].setStyleSheet(
+                            tab.arc_gradient_high_color_btns[arc_name].setStyleSheet(
                                 f"background-color: rgb({c[0]},{c[1]},{c[2]}); border: 1px solid #888; border-radius: 3px;")
                 
-                if self.controls_manager and arc_name in self.controls_manager.arc_gradient_checkboxes:
-                    self.controls_manager.arc_gradient_checkboxes[arc_name].setChecked(use_gradient)
+                if tab and arc_name in tab.arc_gradient_checkboxes:
+                    tab.arc_gradient_checkboxes[arc_name].setChecked(use_gradient)
                     # Show/hide gradient row based on loaded state
-                    if arc_name in self.controls_manager.arc_gradient_rows:
+                    if arc_name in tab.arc_gradient_rows:
                         if use_gradient:
-                            self.controls_manager.arc_gradient_rows[arc_name].show()
+                            tab.arc_gradient_rows[arc_name].show()
                         else:
-                            self.controls_manager.arc_gradient_rows[arc_name].hide()
+                            tab.arc_gradient_rows[arc_name].hide()
 
                 widget.update_display()
 
@@ -1098,30 +1145,29 @@ class MediaPreviewUI(QMainWindow):
             if self.time_widget and hasattr(self.controls_manager, 'time_font_size_spin'):
                 self.controls_manager.time_font_size_spin.setValue(self.time_widget.get_font_size())
 
+            # Update metric controls in their respective tabs
             for metric_name, widget in self.metric_widgets.items():
-                # Update checkbox
-                if hasattr(self.controls_manager, 'metric_checkboxes'):
-                    checkbox = self.controls_manager.metric_checkboxes[metric_name]
-                    checkbox.setChecked(widget.enabled)
+                tab = self._get_tab_for_metric(metric_name)
+                if tab:
+                    # Update checkbox
+                    if hasattr(tab, 'metric_checkboxes') and metric_name in tab.metric_checkboxes:
+                        tab.metric_checkboxes[metric_name].setChecked(widget.enabled)
 
-                if hasattr(self.controls_manager, 'metric_unit_inputs') and widget.enabled:
-                    label_input = self.controls_manager.metric_label_inputs[metric_name]
-                    label_input.setText(widget.get_label())
+                    # Update label input
+                    if hasattr(tab, 'metric_label_inputs') and metric_name in tab.metric_label_inputs and widget.enabled:
+                        tab.metric_label_inputs[metric_name].setText(widget.get_label())
 
-                # Update unit input
-                if hasattr(self.controls_manager, 'metric_unit_inputs') and widget.enabled:
-                    unit_input = self.controls_manager.metric_unit_inputs[metric_name]
-                    unit_input.setText(widget.get_unit())
+                    # Update unit input
+                    if hasattr(tab, 'metric_unit_inputs') and metric_name in tab.metric_unit_inputs and widget.enabled:
+                        tab.metric_unit_inputs[metric_name].setText(widget.get_unit())
 
-                # Update font size spinbox
-                if hasattr(self.controls_manager, 'metric_font_size_spins'):
-                    if metric_name in self.controls_manager.metric_font_size_spins:
-                        self.controls_manager.metric_font_size_spins[metric_name].setValue(widget.get_font_size())
+                    # Update font size spinbox
+                    if hasattr(tab, 'metric_font_size_spins') and metric_name in tab.metric_font_size_spins:
+                        tab.metric_font_size_spins[metric_name].setValue(widget.get_font_size())
 
-                # Update label font size spinbox
-                if hasattr(self.controls_manager, 'metric_label_font_size_spins'):
-                    if metric_name in self.controls_manager.metric_label_font_size_spins:
-                        self.controls_manager.metric_label_font_size_spins[metric_name].setValue(widget.get_label_font_size())
+                    # Update label font size spinbox
+                    if hasattr(tab, 'metric_label_font_size_spins') and metric_name in tab.metric_label_font_size_spins:
+                        tab.metric_label_font_size_spins[metric_name].setValue(widget.get_label_font_size())
 
             # Update font size control
             if hasattr(self.controls_manager, 'font_size_spin'):
@@ -1396,10 +1442,6 @@ class MediaPreviewUI(QMainWindow):
             elif widget_name == 'time' and hasattr(self.controls_manager, 'time_position_label'):
                 if self.controls_manager.time_position_label:
                     self.controls_manager.time_position_label.setText(f"({device_x}, {device_y})")
-            elif widget_name in self.controls_manager.metric_position_labels:
-                label = self.controls_manager.metric_position_labels.get(widget_name)
-                if label:
-                    label.setText(f"({device_x}, {device_y})")
         
         # Debounce preview update - restart timer on each move
         self._position_update_timer.start()
@@ -1520,6 +1562,7 @@ class MediaPreviewUI(QMainWindow):
                         width=widget.get_width(),
                         height=widget.get_height(),
                         orientation=widget.get_orientation(),
+                        rotation=widget.get_rotation(),
                         fill_color=qcolor_to_rgba(widget.get_fill_color()),
                         background_color=qcolor_to_rgba(widget.get_background_color()),
                         border_color=qcolor_to_rgba(widget.get_border_color()),
@@ -1547,6 +1590,7 @@ class MediaPreviewUI(QMainWindow):
                         thickness=widget.get_thickness(),
                         start_angle=widget.get_start_angle(),
                         sweep_angle=widget.get_sweep_angle(),
+                        rotation=widget.get_rotation(),
                         fill_color=qcolor_to_rgba(widget.get_fill_color()),
                         background_color=qcolor_to_rgba(widget.get_background_color()),
                         border_color=qcolor_to_rgba(widget.get_border_color()),
@@ -1712,19 +1756,27 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_width(current_height)
                 widget.set_height(current_width)
                 
-                # Update the spinbox values in the UI
-                if bar_name in self.controls_manager.bar_width_spins:
-                    self.controls_manager.bar_width_spins[bar_name].blockSignals(True)
-                    self.controls_manager.bar_width_spins[bar_name].setValue(current_height)
-                    self.controls_manager.bar_width_spins[bar_name].blockSignals(False)
-                if bar_name in self.controls_manager.bar_height_spins:
-                    self.controls_manager.bar_height_spins[bar_name].blockSignals(True)
-                    self.controls_manager.bar_height_spins[bar_name].setValue(current_width)
-                    self.controls_manager.bar_height_spins[bar_name].blockSignals(False)
+                # Update the spinbox values in the appropriate tab
+                tab = self._get_tab_for_bar(bar_name)
+                if tab:
+                    if bar_name in tab.bar_width_spins:
+                        tab.bar_width_spins[bar_name].blockSignals(True)
+                        tab.bar_width_spins[bar_name].setValue(current_height)
+                        tab.bar_width_spins[bar_name].blockSignals(False)
+                    if bar_name in tab.bar_height_spins:
+                        tab.bar_height_spins[bar_name].blockSignals(True)
+                        tab.bar_height_spins[bar_name].setValue(current_width)
+                        tab.bar_height_spins[bar_name].blockSignals(False)
                 
                 # Set the new orientation
                 widget.set_orientation(orientation)
             
+            self.update_preview_widget_configs()
+
+    def on_bar_rotation_changed(self, bar_name, angle):
+        """Handle bar graph rotation change"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_rotation(angle)
             self.update_preview_widget_configs()
 
     def on_bar_fill_color_clicked(self, bar_name):
@@ -1734,8 +1786,9 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(widget.get_fill_color(), self, "Select Fill Color")
             if color.isValid():
                 widget.set_fill_color(color)
-                if bar_name in self.controls_manager.bar_fill_color_btns:
-                    self.controls_manager.bar_fill_color_btns[bar_name].setStyleSheet(
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_fill_color_btns:
+                    tab.bar_fill_color_btns[bar_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
@@ -1746,8 +1799,9 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(widget.get_background_color(), self, "Select Background Color")
             if color.isValid():
                 widget.set_background_color(color)
-                if bar_name in self.controls_manager.bar_bg_color_btns:
-                    self.controls_manager.bar_bg_color_btns[bar_name].setStyleSheet(
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_bg_color_btns:
+                    tab.bar_bg_color_btns[bar_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
@@ -1758,19 +1812,21 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(widget.get_border_color(), self, "Select Border Color")
             if color.isValid():
                 widget.set_border_color(color)
-                if bar_name in self.controls_manager.bar_border_color_btns:
-                    self.controls_manager.bar_border_color_btns[bar_name].setStyleSheet(
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_border_color_btns:
+                    tab.bar_border_color_btns[bar_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
     def on_bar_gradient_toggled(self, bar_name, enabled):
         """Handle bar graph gradient toggle"""
-        # Show/hide gradient settings row (always do this)
-        if bar_name in self.controls_manager.bar_gradient_rows:
+        # Show/hide gradient settings row in the appropriate tab
+        tab = self._get_tab_for_bar(bar_name)
+        if tab and bar_name in tab.bar_gradient_rows:
             if enabled:
-                self.controls_manager.bar_gradient_rows[bar_name].show()
+                tab.bar_gradient_rows[bar_name].show()
             else:
-                self.controls_manager.bar_gradient_rows[bar_name].hide()
+                tab.bar_gradient_rows[bar_name].hide()
         
         # Update widget if it exists
         if bar_name in self.bar_widgets:
@@ -1786,8 +1842,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select Low Color (0%)")
             if color.isValid():
                 self._update_bar_gradient_color(bar_name, 0, color)
-                self.controls_manager.bar_gradient_low_color_btns[bar_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_gradient_low_color_btns:
+                    tab.bar_gradient_low_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_bar_gradient_mid_color_clicked(self, bar_name):
         """Handle bar graph gradient mid color picker"""
@@ -1798,8 +1856,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select Medium Color")
             if color.isValid():
                 self._update_bar_gradient_color(bar_name, 1, color)
-                self.controls_manager.bar_gradient_mid_color_btns[bar_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_gradient_mid_color_btns:
+                    tab.bar_gradient_mid_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_bar_gradient_high_color_clicked(self, bar_name):
         """Handle bar graph gradient high color picker"""
@@ -1810,8 +1870,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select High Color")
             if color.isValid():
                 self._update_bar_gradient_color(bar_name, 2, color)
-                self.controls_manager.bar_gradient_high_color_btns[bar_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_bar(bar_name)
+                if tab and bar_name in tab.bar_gradient_high_color_btns:
+                    tab.bar_gradient_high_color_btns[bar_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_bar_gradient_mid_threshold_changed(self, bar_name, value):
         """Handle bar graph gradient mid threshold change"""
@@ -1880,6 +1942,12 @@ class MediaPreviewUI(QMainWindow):
             self.arc_widgets[arc_name].set_sweep_angle(angle)
             self.update_preview_widget_configs()
 
+    def on_arc_rotation_changed(self, arc_name, angle):
+        """Handle circular graph rotation change"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_rotation(angle)
+            self.update_preview_widget_configs()
+
     def on_arc_fill_color_clicked(self, arc_name):
         """Handle circular graph fill color picker"""
         if arc_name in self.arc_widgets:
@@ -1887,8 +1955,9 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(widget.get_fill_color(), self, "Select Fill Color")
             if color.isValid():
                 widget.set_fill_color(color)
-                if arc_name in self.controls_manager.arc_fill_color_btns:
-                    self.controls_manager.arc_fill_color_btns[arc_name].setStyleSheet(
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_fill_color_btns:
+                    tab.arc_fill_color_btns[arc_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
@@ -1899,8 +1968,9 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(widget.get_background_color(), self, "Select Background Color")
             if color.isValid():
                 widget.set_background_color(color)
-                if arc_name in self.controls_manager.arc_bg_color_btns:
-                    self.controls_manager.arc_bg_color_btns[arc_name].setStyleSheet(
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_bg_color_btns:
+                    tab.arc_bg_color_btns[arc_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
@@ -1912,19 +1982,21 @@ class MediaPreviewUI(QMainWindow):
             if color.isValid():
                 widget.set_border_color(color)
                 widget.set_show_border(True)  # Enable border when color is selected
-                if arc_name in self.controls_manager.arc_border_color_btns:
-                    self.controls_manager.arc_border_color_btns[arc_name].setStyleSheet(
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_border_color_btns:
+                    tab.arc_border_color_btns[arc_name].setStyleSheet(
                         f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
                 self.update_preview_widget_configs()
 
     def on_arc_gradient_toggled(self, arc_name, enabled):
         """Handle circular graph gradient toggle"""
-        # Show/hide gradient settings row (always do this)
-        if arc_name in self.controls_manager.arc_gradient_rows:
+        # Show/hide gradient settings row in the appropriate tab
+        tab = self._get_tab_for_arc(arc_name)
+        if tab and arc_name in tab.arc_gradient_rows:
             if enabled:
-                self.controls_manager.arc_gradient_rows[arc_name].show()
+                tab.arc_gradient_rows[arc_name].show()
             else:
-                self.controls_manager.arc_gradient_rows[arc_name].hide()
+                tab.arc_gradient_rows[arc_name].hide()
         
         # Update widget if it exists
         if arc_name in self.arc_widgets:
@@ -1940,8 +2012,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select Low Color (0%)")
             if color.isValid():
                 self._update_arc_gradient_color(arc_name, 0, color)
-                self.controls_manager.arc_gradient_low_color_btns[arc_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_gradient_low_color_btns:
+                    tab.arc_gradient_low_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_arc_gradient_mid_color_clicked(self, arc_name):
         """Handle arc gradient mid color picker"""
@@ -1952,8 +2026,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select Medium Color")
             if color.isValid():
                 self._update_arc_gradient_color(arc_name, 1, color)
-                self.controls_manager.arc_gradient_mid_color_btns[arc_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_gradient_mid_color_btns:
+                    tab.arc_gradient_mid_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_arc_gradient_high_color_clicked(self, arc_name):
         """Handle arc gradient high color picker"""
@@ -1964,8 +2040,10 @@ class MediaPreviewUI(QMainWindow):
             color = QColorDialog.getColor(current_color, self, "Select High Color")
             if color.isValid():
                 self._update_arc_gradient_color(arc_name, 2, color)
-                self.controls_manager.arc_gradient_high_color_btns[arc_name].setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
+                tab = self._get_tab_for_arc(arc_name)
+                if tab and arc_name in tab.arc_gradient_high_color_btns:
+                    tab.arc_gradient_high_color_btns[arc_name].setStyleSheet(
+                        f"background-color: {color.name()}; border: 1px solid #888; border-radius: 3px;")
 
     def on_arc_gradient_mid_threshold_changed(self, arc_name, value):
         """Handle arc gradient mid threshold change"""
@@ -1996,6 +2074,81 @@ class MediaPreviewUI(QMainWindow):
             colors[index] = (value, color)
             widget.set_gradient_colors(colors)
             self.update_preview_widget_configs()
+
+    # Direct color change handlers (used by tabs that handle color dialog themselves)
+    def on_bar_fill_color_changed(self, bar_name, color):
+        """Handle bar graph fill color change (direct color)"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_fill_color(color)
+            self.update_preview_widget_configs()
+
+    def on_bar_bg_color_changed(self, bar_name, color):
+        """Handle bar graph background color change (direct color)"""
+        if bar_name in self.bar_widgets:
+            self.bar_widgets[bar_name].set_background_color(color)
+            self.update_preview_widget_configs()
+
+    def on_bar_gradient_low_color_changed(self, bar_name, color):
+        """Handle bar gradient low color change (direct color)"""
+        if bar_name in self.bar_widgets:
+            self._update_bar_gradient_color(bar_name, 0, color)
+
+    def on_bar_gradient_mid_color_changed(self, bar_name, color):
+        """Handle bar gradient mid color change (direct color)"""
+        if bar_name in self.bar_widgets:
+            self._update_bar_gradient_color(bar_name, 1, color)
+
+    def on_bar_gradient_high_color_changed(self, bar_name, color):
+        """Handle bar gradient high color change (direct color)"""
+        if bar_name in self.bar_widgets:
+            self._update_bar_gradient_color(bar_name, 2, color)
+
+    def on_bar_gradient_mid_changed(self, bar_name, value):
+        """Handle bar gradient mid threshold change"""
+        if bar_name in self.bar_widgets:
+            self._update_bar_gradient_threshold(bar_name, 1, value)
+
+    def on_bar_gradient_high_changed(self, bar_name, value):
+        """Handle bar gradient high threshold change"""
+        if bar_name in self.bar_widgets:
+            self._update_bar_gradient_threshold(bar_name, 2, value)
+
+    def on_arc_fill_color_changed(self, arc_name, color):
+        """Handle arc fill color change (direct color)"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_fill_color(color)
+            self.update_preview_widget_configs()
+
+    def on_arc_bg_color_changed(self, arc_name, color):
+        """Handle arc background color change (direct color)"""
+        if arc_name in self.arc_widgets:
+            self.arc_widgets[arc_name].set_background_color(color)
+            self.update_preview_widget_configs()
+
+    def on_arc_gradient_low_color_changed(self, arc_name, color):
+        """Handle arc gradient low color change (direct color)"""
+        if arc_name in self.arc_widgets:
+            self._update_arc_gradient_color(arc_name, 0, color)
+
+    def on_arc_gradient_mid_color_changed(self, arc_name, color):
+        """Handle arc gradient mid color change (direct color)"""
+        if arc_name in self.arc_widgets:
+            self._update_arc_gradient_color(arc_name, 1, color)
+
+    def on_arc_gradient_high_color_changed(self, arc_name, color):
+        """Handle arc gradient high color change (direct color)"""
+        if arc_name in self.arc_widgets:
+            self._update_arc_gradient_color(arc_name, 2, color)
+
+    def on_arc_gradient_mid_changed(self, arc_name, value):
+        """Handle arc gradient mid threshold change"""
+        if arc_name in self.arc_widgets:
+            self._update_arc_gradient_threshold(arc_name, 1, value)
+
+    def on_arc_gradient_high_changed(self, arc_name, value):
+        """Handle arc gradient high threshold change"""
+        if arc_name in self.arc_widgets:
+            self._update_arc_gradient_threshold(arc_name, 2, value)
 
     def on_opacity_text_changed(self, text):
         """Handle opacity text input change (real-time)"""
@@ -2206,8 +2359,9 @@ class MediaPreviewUI(QMainWindow):
             # Disable all metric widgets
             for metric_name, widget in self.metric_widgets.items():
                 widget.set_enabled(False)
-                if self.controls_manager:
-                    checkbox = self.controls_manager.metric_checkboxes.get(metric_name)
+                tab = self._get_tab_for_metric(metric_name)
+                if tab:
+                    checkbox = tab.metric_checkboxes.get(metric_name)
                     if checkbox:
                         checkbox.blockSignals(True)
                         checkbox.setChecked(False)
@@ -2216,24 +2370,24 @@ class MediaPreviewUI(QMainWindow):
             # Disable date widget
             if self.date_widget:
                 self.date_widget.set_enabled(False)
-                if self.controls_manager and self.controls_manager.show_date_checkbox:
-                    self.controls_manager.show_date_checkbox.blockSignals(True)
-                    self.controls_manager.show_date_checkbox.setChecked(False)
-                    self.controls_manager.show_date_checkbox.blockSignals(False)
+                if hasattr(self, 'info_tab') and self.info_tab and hasattr(self.info_tab, 'show_date_checkbox'):
+                    self.info_tab.show_date_checkbox.blockSignals(True)
+                    self.info_tab.show_date_checkbox.setChecked(False)
+                    self.info_tab.show_date_checkbox.blockSignals(False)
             
             # Disable time widget
             if self.time_widget:
                 self.time_widget.set_enabled(False)
-                if self.controls_manager and self.controls_manager.show_time_checkbox:
-                    self.controls_manager.show_time_checkbox.blockSignals(True)
-                    self.controls_manager.show_time_checkbox.setChecked(False)
-                    self.controls_manager.show_time_checkbox.blockSignals(False)
+                if hasattr(self, 'info_tab') and self.info_tab and hasattr(self.info_tab, 'show_time_checkbox'):
+                    self.info_tab.show_time_checkbox.blockSignals(True)
+                    self.info_tab.show_time_checkbox.setChecked(False)
+                    self.info_tab.show_time_checkbox.blockSignals(False)
             
             # Disable all free text widgets
             for text_name, widget in self.text_widgets.items():
                 widget.set_enabled(False)
-                if self.controls_manager:
-                    checkbox = self.controls_manager.text_checkboxes.get(text_name)
+                if hasattr(self, 'info_tab') and self.info_tab:
+                    checkbox = self.info_tab.text_checkboxes.get(text_name)
                     if checkbox:
                         checkbox.blockSignals(True)
                         checkbox.setChecked(False)
@@ -2242,8 +2396,9 @@ class MediaPreviewUI(QMainWindow):
             # Disable all bar graph widgets
             for bar_name, widget in self.bar_widgets.items():
                 widget.set_enabled(False)
-                if self.controls_manager:
-                    checkbox = self.controls_manager.bar_checkboxes.get(bar_name)
+                tab = self._get_tab_for_bar(bar_name)
+                if tab:
+                    checkbox = tab.bar_checkboxes.get(bar_name)
                     if checkbox:
                         checkbox.blockSignals(True)
                         checkbox.setChecked(False)
@@ -2252,8 +2407,9 @@ class MediaPreviewUI(QMainWindow):
             # Disable all circular graph widgets
             for arc_name, widget in self.arc_widgets.items():
                 widget.set_enabled(False)
-                if self.controls_manager:
-                    checkbox = self.controls_manager.arc_checkboxes.get(arc_name)
+                tab = self._get_tab_for_arc(arc_name)
+                if tab:
+                    checkbox = tab.arc_checkboxes.get(arc_name)
                     if checkbox:
                         checkbox.blockSignals(True)
                         checkbox.setChecked(False)

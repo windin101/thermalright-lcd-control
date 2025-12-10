@@ -6,5 +6,6 @@ GUI widgets package
 """
 
 from .thumbnail_widget import ThumbnailWidget
+from .device_selector import DeviceSelector
 
-__all__ = ['ThumbnailWidget']
+__all__ = ['ThumbnailWidget', 'DeviceSelector']

@@ -462,50 +462,123 @@ class TextRenderer:
 
             x, y = config.position
             w, h = config.width, config.height
+            rotation = getattr(config, 'rotation', 0)
 
-            # Draw background
+            # If rotation is non-zero, render to a temp image and rotate
+            if rotation != 0:
+                self._render_rotated_bar(image, config, normalized, x, y, w, h, rotation)
+            else:
+                self._render_bar_direct(draw, config, normalized, x, y, w, h)
+
+    def _render_bar_direct(self, draw: ImageDraw.Draw, config: BarGraphConfig,
+                           normalized: float, x: int, y: int, w: int, h: int):
+        """Render bar graph directly (no rotation)"""
+        # Draw background
+        if config.corner_radius > 0:
+            self._draw_rounded_rect(draw, x, y, w, h, config.corner_radius, config.background_color)
+        else:
+            draw.rectangle([x, y, x + w, y + h], fill=config.background_color)
+
+        # Determine fill color (use gradient if enabled)
+        if config.use_gradient and config.gradient_colors:
+            fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+        else:
+            fill_color = config.fill_color
+
+        # Draw filled portion
+        if normalized > 0:
+            if config.orientation == "horizontal":
+                fill_width = int(w * normalized)
+                if fill_width > 0:
+                    if config.corner_radius > 0:
+                        self._draw_rounded_rect(draw, x, y, fill_width, h, 
+                                               min(config.corner_radius, fill_width // 2), 
+                                               fill_color)
+                    else:
+                        draw.rectangle([x, y, x + fill_width, y + h], fill=fill_color)
+            else:  # vertical
+                fill_height = int(h * normalized)
+                if fill_height > 0:
+                    fill_y = y + h - fill_height  # Fill from bottom
+                    if config.corner_radius > 0:
+                        self._draw_rounded_rect(draw, x, fill_y, w, fill_height,
+                                               min(config.corner_radius, fill_height // 2),
+                                               fill_color)
+                    else:
+                        draw.rectangle([x, fill_y, x + w, y + h], fill=fill_color)
+
+        # Draw border
+        if config.show_border:
             if config.corner_radius > 0:
-                self._draw_rounded_rect(draw, x, y, w, h, config.corner_radius, config.background_color)
+                self._draw_rounded_rect_outline(draw, x, y, w, h, config.corner_radius,
+                                                config.border_color, config.border_width)
             else:
-                draw.rectangle([x, y, x + w, y + h], fill=config.background_color)
+                draw.rectangle([x, y, x + w, y + h], outline=config.border_color, 
+                              width=config.border_width)
 
-            # Determine fill color (use gradient if enabled)
-            if config.use_gradient and config.gradient_colors:
-                fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+    def _render_rotated_bar(self, image: Image.Image, config: BarGraphConfig,
+                            normalized: float, x: int, y: int, w: int, h: int, rotation: int):
+        """Render a rotated bar graph by drawing to temp image and pasting"""
+        import math
+        
+        # Create temp image for the bar (with transparency)
+        bar_img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        bar_draw = ImageDraw.Draw(bar_img)
+        
+        # Draw the bar at origin (0, 0)
+        # Background
+        if config.corner_radius > 0:
+            self._draw_rounded_rect(bar_draw, 0, 0, w, h, config.corner_radius, config.background_color)
+        else:
+            bar_draw.rectangle([0, 0, w, h], fill=config.background_color)
+        
+        # Determine fill color
+        if config.use_gradient and config.gradient_colors:
+            fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+        else:
+            fill_color = config.fill_color
+        
+        # Draw filled portion
+        if normalized > 0:
+            if config.orientation == "horizontal":
+                fill_width = int(w * normalized)
+                if fill_width > 0:
+                    if config.corner_radius > 0:
+                        self._draw_rounded_rect(bar_draw, 0, 0, fill_width, h,
+                                               min(config.corner_radius, fill_width // 2),
+                                               fill_color)
+                    else:
+                        bar_draw.rectangle([0, 0, fill_width, h], fill=fill_color)
+            else:  # vertical
+                fill_height = int(h * normalized)
+                if fill_height > 0:
+                    fill_y = h - fill_height
+                    if config.corner_radius > 0:
+                        self._draw_rounded_rect(bar_draw, 0, fill_y, w, fill_height,
+                                               min(config.corner_radius, fill_height // 2),
+                                               fill_color)
+                    else:
+                        bar_draw.rectangle([0, fill_y, w, h], fill=fill_color)
+        
+        # Draw border
+        if config.show_border:
+            if config.corner_radius > 0:
+                self._draw_rounded_rect_outline(bar_draw, 0, 0, w, h, config.corner_radius,
+                                                config.border_color, config.border_width)
             else:
-                fill_color = config.fill_color
-
-            # Draw filled portion
-            if normalized > 0:
-                if config.orientation == "horizontal":
-                    fill_width = int(w * normalized)
-                    if fill_width > 0:
-                        if config.corner_radius > 0:
-                            # For rounded, we need to clip the fill
-                            self._draw_rounded_rect(draw, x, y, fill_width, h, 
-                                                   min(config.corner_radius, fill_width // 2), 
-                                                   fill_color)
-                        else:
-                            draw.rectangle([x, y, x + fill_width, y + h], fill=fill_color)
-                else:  # vertical
-                    fill_height = int(h * normalized)
-                    if fill_height > 0:
-                        fill_y = y + h - fill_height  # Fill from bottom
-                        if config.corner_radius > 0:
-                            self._draw_rounded_rect(draw, x, fill_y, w, fill_height,
-                                                   min(config.corner_radius, fill_height // 2),
-                                                   fill_color)
-                        else:
-                            draw.rectangle([x, fill_y, x + w, y + h], fill=fill_color)
-
-            # Draw border
-            if config.show_border:
-                if config.corner_radius > 0:
-                    self._draw_rounded_rect_outline(draw, x, y, w, h, config.corner_radius,
-                                                    config.border_color, config.border_width)
-                else:
-                    draw.rectangle([x, y, x + w, y + h], outline=config.border_color, 
+                bar_draw.rectangle([0, 0, w, h], outline=config.border_color,
                                   width=config.border_width)
+        
+        # Rotate the bar image
+        rotated = bar_img.rotate(-rotation, expand=True, resample=Image.BICUBIC)
+        
+        # Calculate paste position (center the rotated image at the original position)
+        rot_w, rot_h = rotated.size
+        paste_x = x - (rot_w - w) // 2
+        paste_y = y - (rot_h - h) // 2
+        
+        # Paste onto main image using alpha channel as mask
+        image.paste(rotated, (paste_x, paste_y), rotated)
 
     def _draw_rounded_rect(self, draw: ImageDraw.Draw, x: int, y: int, w: int, h: int, 
                            radius: int, fill_color: tuple):
@@ -575,57 +648,131 @@ class TextRenderer:
             except (ValueError, ZeroDivisionError):
                 normalized = 0.0
 
-            cx, cy = config.position  # Center of arc
-            radius = config.radius
-            thickness = config.thickness
+            rotation = getattr(config, 'rotation', 0)
             
-            # Calculate bounding box for the arc
-            # PIL's arc uses bounding box of the ellipse
-            bbox = [
-                cx - radius,
-                cy - radius,
-                cx + radius,
-                cy + radius
-            ]
-            
-            # Qt uses counter-clockwise angles (positive = CCW from 3 o'clock)
-            # PIL uses clockwise angles (because y increases downward in images)
-            # To match Qt: negate the angles for PIL
-            # PIL start should be at -start_angle, and we sweep in negative direction
-            pil_start = -config.start_angle
-            pil_end = -(config.start_angle + config.sweep_angle)
-            
-            # Draw background arc (full sweep)
-            draw.arc(bbox, pil_end, pil_start, fill=config.background_color, width=thickness)
-            
-            # Determine fill color (use gradient if enabled)
-            if config.use_gradient and config.gradient_colors:
-                fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+            # If rotation is non-zero, render to a temp image and rotate
+            if rotation != 0:
+                self._render_rotated_arc(image, config, normalized, rotation)
             else:
-                fill_color = config.fill_color
-            
-            # Draw filled arc (proportional to value)
-            if normalized > 0:
-                filled_sweep = config.sweep_angle * normalized
-                pil_filled_end = -(config.start_angle + filled_sweep)
-                draw.arc(bbox, pil_filled_end, pil_start, fill=fill_color, width=thickness)
-            
-            # Draw border arc if enabled
-            if config.show_border:
-                border_width = config.border_width
-                # Draw outer border arc
-                outer_bbox = [
-                    cx - radius - thickness // 2 - border_width,
-                    cy - radius - thickness // 2 - border_width,
-                    cx + radius + thickness // 2 + border_width,
-                    cy + radius + thickness // 2 + border_width
-                ]
-                draw.arc(outer_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
-                # Draw inner border arc
-                inner_bbox = [
-                    cx - radius + thickness // 2 + border_width,
-                    cy - radius + thickness // 2 + border_width,
-                    cx + radius - thickness // 2 - border_width,
-                    cy + radius - thickness // 2 - border_width
-                ]
-                draw.arc(inner_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+                self._render_arc_direct(draw, config, normalized)
+
+    def _render_arc_direct(self, draw: ImageDraw.Draw, config: CircularGraphConfig, normalized: float):
+        """Render arc directly (no rotation)"""
+        cx, cy = config.position  # Center of arc
+        radius = config.radius
+        thickness = config.thickness
+        
+        # Calculate bounding box for the arc
+        bbox = [
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius
+        ]
+        
+        # Qt uses counter-clockwise angles (positive = CCW from 3 o'clock)
+        # PIL uses clockwise angles (because y increases downward in images)
+        pil_start = -config.start_angle
+        pil_end = -(config.start_angle + config.sweep_angle)
+        
+        # Draw background arc (full sweep)
+        draw.arc(bbox, pil_end, pil_start, fill=config.background_color, width=thickness)
+        
+        # Determine fill color (use gradient if enabled)
+        if config.use_gradient and config.gradient_colors:
+            fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+        else:
+            fill_color = config.fill_color
+        
+        # Draw filled arc (proportional to value)
+        if normalized > 0:
+            filled_sweep = config.sweep_angle * normalized
+            pil_filled_end = -(config.start_angle + filled_sweep)
+            draw.arc(bbox, pil_filled_end, pil_start, fill=fill_color, width=thickness)
+        
+        # Draw border arc if enabled
+        if config.show_border:
+            border_width = config.border_width
+            outer_bbox = [
+                cx - radius - thickness // 2 - border_width,
+                cy - radius - thickness // 2 - border_width,
+                cx + radius + thickness // 2 + border_width,
+                cy + radius + thickness // 2 + border_width
+            ]
+            draw.arc(outer_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+            inner_bbox = [
+                cx - radius + thickness // 2 + border_width,
+                cy - radius + thickness // 2 + border_width,
+                cx + radius - thickness // 2 - border_width,
+                cy + radius - thickness // 2 - border_width
+            ]
+            draw.arc(inner_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+
+    def _render_rotated_arc(self, image: Image.Image, config: CircularGraphConfig,
+                            normalized: float, rotation: int):
+        """Render a rotated arc by drawing to temp image and pasting"""
+        import math
+        
+        radius = config.radius
+        thickness = config.thickness
+        
+        # Create temp image large enough for the arc with some padding
+        size = (radius + thickness) * 2 + 4
+        arc_img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        arc_draw = ImageDraw.Draw(arc_img)
+        
+        # Draw arc centered in temp image
+        center = size // 2
+        bbox = [
+            center - radius,
+            center - radius,
+            center + radius,
+            center + radius
+        ]
+        
+        pil_start = -config.start_angle
+        pil_end = -(config.start_angle + config.sweep_angle)
+        
+        # Draw background arc
+        arc_draw.arc(bbox, pil_end, pil_start, fill=config.background_color, width=thickness)
+        
+        # Determine fill color
+        if config.use_gradient and config.gradient_colors:
+            fill_color = _interpolate_gradient_color(normalized, config.gradient_colors)
+        else:
+            fill_color = config.fill_color
+        
+        # Draw filled arc
+        if normalized > 0:
+            filled_sweep = config.sweep_angle * normalized
+            pil_filled_end = -(config.start_angle + filled_sweep)
+            arc_draw.arc(bbox, pil_filled_end, pil_start, fill=fill_color, width=thickness)
+        
+        # Draw border if enabled
+        if config.show_border:
+            border_width = config.border_width
+            outer_bbox = [
+                center - radius - thickness // 2 - border_width,
+                center - radius - thickness // 2 - border_width,
+                center + radius + thickness // 2 + border_width,
+                center + radius + thickness // 2 + border_width
+            ]
+            arc_draw.arc(outer_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+            inner_bbox = [
+                center - radius + thickness // 2 + border_width,
+                center - radius + thickness // 2 + border_width,
+                center + radius - thickness // 2 - border_width,
+                center + radius - thickness // 2 - border_width
+            ]
+            arc_draw.arc(inner_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
+        
+        # Rotate the arc image
+        rotated = arc_img.rotate(-rotation, expand=False, resample=Image.BICUBIC)
+        
+        # Calculate paste position (center at config.position)
+        cx, cy = config.position
+        paste_x = cx - size // 2
+        paste_y = cy - size // 2
+        
+        # Paste onto main image using alpha channel as mask
+        image.paste(rotated, (paste_x, paste_y), rotated)

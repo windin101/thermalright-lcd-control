@@ -17,7 +17,7 @@ display:
     max_value: 100.0
     metric_name: cpu_usage
     min_value: 0.0
-    name: arc1
+    name: cpu_arc1
     position:
       x: 74
       y: 128
@@ -31,7 +31,7 @@ display:
     max_value: 100.0
     metric_name: gpu_usage
     min_value: 0.0
-    name: arc2
+    name: cpu_arc2
     position:
       x: 245
       y: 128

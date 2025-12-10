@@ -130,7 +130,7 @@ class ControlsManager:
         controls_layout.addWidget(bg_fg_container)
         
         controls_layout.addWidget(self._create_text_style_controls())
-        controls_layout.addWidget(self._create_overlay_controls())
+        # NOTE: Overlay controls (metrics, bars, arcs) have been moved to CPU/GPU/Info tabs
         controls_layout.addStretch()
 
         scroll_area.setWidget(controls_container)

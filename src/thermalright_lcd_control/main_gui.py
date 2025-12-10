@@ -41,12 +41,23 @@ def main(config_file=None):
     """
     app = QApplication(sys.argv)
     
-    # Use Fusion style for consistent cross-platform appearance
-    # This makes widgets work more reliably on Linux
-    app.setStyle("Fusion")
+    # Use system platform theme if available, or detect KDE/GNOME
+    # Note: pip-installed PySide6 only has Fusion/Windows styles,
+    # but we can still use the system color scheme
+    platform_theme = os.environ.get('QT_QPA_PLATFORMTHEME', '')
+    current_desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
     
-    # Set up application palette for proper colors
-    setup_application_palette(app)
+    # Check if running under a known desktop environment
+    has_desktop_theme = (
+        platform_theme or  # Explicit platform theme set
+        current_desktop in ['kde', 'gnome', 'xfce', 'cinnamon', 'mate', 'lxqt', 'budgie', 'deepin']
+    )
+    
+    if not has_desktop_theme:
+        # Only force Fusion + custom palette for minimal WMs without theming
+        app.setStyle("Fusion")
+        setup_application_palette(app)
+    # else: Let Qt use system defaults (colors will come from desktop theme)
     
     app.setApplicationName("thermalright-lcd-control")
     app.setApplicationDisplayName("Thermalright LCD Control")

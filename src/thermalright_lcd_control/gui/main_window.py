@@ -84,10 +84,10 @@ class MediaPreviewUI(QMainWindow):
         # No stylesheet - using Fusion style + palette set in main_gui.py
         
         window_config = self.config.get('window', {})
-        default_width = window_config.get('default_width', 1200)
+        default_width = window_config.get('default_width', 1400)
         default_height = window_config.get('default_height', 600)
 
-        min_width = max(window_config.get('min_width', 800), self.dev_width + 580)
+        min_width = max(window_config.get('min_width', 1000), self.dev_width + 720)
         min_height = max(window_config.get('min_height', 600), self.dev_height + 200)
 
         self.setGeometry(100, 100, max(default_width, min_width), max(default_height, min_height))
@@ -128,8 +128,8 @@ class MediaPreviewUI(QMainWindow):
 
         # Right side (tabs)
         right_widget = QWidget()
-        right_widget.setMinimumWidth(890)
-        right_widget.setMaximumWidth(950)
+        right_widget.setMinimumWidth(1020)
+        right_widget.setMaximumWidth(1100)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         self.setup_tabs_area(right_layout)
@@ -733,6 +733,19 @@ class MediaPreviewUI(QMainWindow):
                     if index >= 0:
                         combo.setCurrentIndex(index)
 
+                # Apply label offsets
+                label_offset_x = metric_config.get('label_offset_x', 0)
+                label_offset_y = metric_config.get('label_offset_y', 0)
+                widget.set_label_offset_x(label_offset_x)
+                widget.set_label_offset_y(label_offset_y)
+                
+                # Update offset spinboxes in the appropriate tab
+                if tab:
+                    if hasattr(tab, 'metric_label_offset_x_spins') and metric_name in tab.metric_label_offset_x_spins:
+                        tab.metric_label_offset_x_spins[metric_name].setValue(label_offset_x)
+                    if hasattr(tab, 'metric_label_offset_y_spins') and metric_name in tab.metric_label_offset_y_spins:
+                        tab.metric_label_offset_y_spins[metric_name].setValue(label_offset_y)
+
                 # Apply font size and color (create a temporary style for this metric)
                 font_size = metric_config.get('font_size')
                 label_font_size = metric_config.get('label_font_size')
@@ -1012,26 +1025,44 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_radius(radius)
                 widget.set_thickness(thickness)
 
-                # Apply position (convert from device to preview coordinates)
-                # Position is center of arc, need to convert to widget top-left
-                position = arc_config.get('position', {})
-                if position:
-                    center_x = int(position.get('x', 0) * self.preview_scale)
-                    center_y = int(position.get('y', 0) * self.preview_scale)
-                    # Widget position = center - radius - thickness/2 - border_padding
-                    border_padding = 4
-                    widget_x = center_x - radius - thickness // 2 - border_padding
-                    widget_y = center_y - radius - thickness // 2 - border_padding
-                    widget.move(widget_x, widget_y)
-
                 # Apply metric
                 metric_name = arc_config.get('metric_name', 'cpu_usage')
                 widget.set_metric_name(metric_name)
 
-                # Apply angles
+                # Apply angles and rotation BEFORE position calculation
+                # (rotation affects widget size which affects position calculation)
                 widget.set_start_angle(arc_config.get('start_angle', 135))
                 widget.set_sweep_angle(arc_config.get('sweep_angle', 270))
-                widget.set_rotation(arc_config.get('rotation', 0))
+                rotation = arc_config.get('rotation', 0)
+                widget.set_rotation(rotation)
+
+                # Apply position (convert from device to preview coordinates)
+                # Position is center of arc, need to convert to widget top-left
+                # Must account for rotation in size calculation (matching get_position())
+                position = arc_config.get('position', {})
+                if position:
+                    import math
+                    center_x = int(position.get('x', 0) * self.preview_scale)
+                    center_y = int(position.get('y', 0) * self.preview_scale)
+                    # Widget position = center - (widget_size / 2)
+                    # Widget size = diameter + thickness + border_padding * 2
+                    border_padding = 4
+                    diameter = radius * 2
+                    base_size = diameter + thickness + border_padding * 2
+                    
+                    # Calculate total size accounting for rotation (must match get_position())
+                    if rotation != 0:
+                        angle_rad = math.radians(rotation)
+                        cos_a = abs(math.cos(angle_rad))
+                        sin_a = abs(math.sin(angle_rad))
+                        rotated_size = int(base_size * cos_a + base_size * sin_a)
+                        total_size = max(base_size, rotated_size)
+                    else:
+                        total_size = base_size
+                    
+                    widget_x = center_x - total_size // 2
+                    widget_y = center_y - total_size // 2
+                    widget.move(widget_x, widget_y)
 
                 # Apply colors (use hex_to_qcolor to properly parse RRGGBBAA format)
                 fill_color = arc_config.get('fill_color', '#00FF00FF')
@@ -1501,13 +1532,31 @@ class MediaPreviewUI(QMainWindow):
                     
                     # Map label position string to LabelPosition enum
                     label_pos_map = {
+                        # Legacy positions
                         'left': LabelPosition.LEFT,
                         'right': LabelPosition.RIGHT,
                         'above': LabelPosition.ABOVE,
                         'below': LabelPosition.BELOW,
-                        'none': LabelPosition.NONE
+                        'none': LabelPosition.NONE,
+                        # New grid-based positions
+                        'above-left': LabelPosition.ABOVE_LEFT,
+                        'above-center': LabelPosition.ABOVE_CENTER,
+                        'above-right': LabelPosition.ABOVE_RIGHT,
+                        'below-left': LabelPosition.BELOW_LEFT,
+                        'below-center': LabelPosition.BELOW_CENTER,
+                        'below-right': LabelPosition.BELOW_RIGHT,
+                        'left-top': LabelPosition.LEFT_TOP,
+                        'left-center': LabelPosition.LEFT_CENTER,
+                        'left-bottom': LabelPosition.LEFT_BOTTOM,
+                        'right-top': LabelPosition.RIGHT_TOP,
+                        'right-center': LabelPosition.RIGHT_CENTER,
+                        'right-bottom': LabelPosition.RIGHT_BOTTOM,
                     }
                     label_pos = label_pos_map.get(widget.get_label_position(), LabelPosition.LEFT)
+                    
+                    # Get label offsets
+                    label_offset_x = widget.get_label_offset_x() if hasattr(widget, 'get_label_offset_x') else 0
+                    label_offset_y = widget.get_label_offset_y() if hasattr(widget, 'get_label_offset_y') else 0
                     
                     # Get frequency format for frequency metrics
                     freq_format = widget.get_freq_format() if hasattr(widget, 'get_freq_format') else 'mhz'
@@ -1525,6 +1574,8 @@ class MediaPreviewUI(QMainWindow):
                         unit=widget.get_unit(),
                         enabled=True,
                         label_position=label_pos,
+                        label_offset_x=label_offset_x,
+                        label_offset_y=label_offset_y,
                         freq_format=freq_format,
                         char_limit=char_limit
                     ))
@@ -2258,6 +2309,20 @@ class MediaPreviewUI(QMainWindow):
         if metric_name in self.metric_widgets:
             self.metric_widgets[metric_name].set_label_position(position)
             self.logger.debug(f"Metric {metric_name} label position changed to {position}")
+            self.update_preview_widget_configs()
+
+    def on_metric_label_offset_x_changed(self, metric_name, offset):
+        """Handle metric label X offset change"""
+        if metric_name in self.metric_widgets:
+            self.metric_widgets[metric_name].set_label_offset_x(offset)
+            self.logger.debug(f"Metric {metric_name} label offset X changed to {offset}")
+            self.update_preview_widget_configs()
+
+    def on_metric_label_offset_y_changed(self, metric_name, offset):
+        """Handle metric label Y offset change"""
+        if metric_name in self.metric_widgets:
+            self.metric_widgets[metric_name].set_label_offset_y(offset)
+            self.logger.debug(f"Metric {metric_name} label offset Y changed to {offset}")
             self.update_preview_widget_configs()
 
     def on_metric_char_limit_changed(self, metric_name, limit):

@@ -309,65 +309,128 @@ class TextRenderer:
             value_text = f"{formatted_value}{config.unit}"
             label_text = config.label if config.label else ""
             
-            # Get label position (default to LEFT for backward compatibility)
+            # Get label position and offsets
             label_pos = getattr(config, 'label_position', LabelPosition.LEFT)
+            offset_x = getattr(config, 'label_offset_x', 0)
+            offset_y = getattr(config, 'label_offset_y', 0)
+            
+            # Calculate text dimensions
+            label_bbox = draw.textbbox((0, 0), label_text, font=label_font) if label_text else (0, 0, 0, 0)
+            value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
+            label_width = label_bbox[2] - label_bbox[0]
+            label_height = label_bbox[3] - label_bbox[1]
+            value_width = value_bbox[2] - value_bbox[0]
+            value_height = value_bbox[3] - value_bbox[1]
+            
+            # Base position
+            base_x, base_y = config.position
             
             # Render based on label position
             if label_pos == LabelPosition.NONE or not label_text:
                 # Just render value with unit
                 self._draw_text_with_effects(draw, image, config.position, value_text, value_font, config.color)
-            elif label_pos == LabelPosition.LEFT:
-                # Label: Value (draw separately for different font sizes)
+            
+            # === ABOVE positions (label on top, value below) ===
+            elif label_pos in (LabelPosition.ABOVE, LabelPosition.ABOVE_CENTER):
+                # Center alignment
+                max_width = max(label_width, value_width)
+                label_x = base_x + (max_width - label_width) // 2 + offset_x
+                value_x = base_x + (max_width - value_width) // 2
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+            
+            elif label_pos == LabelPosition.ABOVE_LEFT:
+                # Left alignment
+                label_x = base_x + offset_x
+                value_x = base_x
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+            
+            elif label_pos == LabelPosition.ABOVE_RIGHT:
+                # Right alignment
+                max_width = max(label_width, value_width)
+                label_x = base_x + max_width - label_width + offset_x
+                value_x = base_x + max_width - value_width
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+            
+            # === BELOW positions (value on top, label below) ===
+            elif label_pos in (LabelPosition.BELOW, LabelPosition.BELOW_CENTER):
+                # Center alignment
+                max_width = max(label_width, value_width)
+                value_x = base_x + (max_width - value_width) // 2
+                label_x = base_x + (max_width - label_width) // 2 + offset_x
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+            
+            elif label_pos == LabelPosition.BELOW_LEFT:
+                # Left alignment
+                value_x = base_x
+                label_x = base_x + offset_x
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+            
+            elif label_pos == LabelPosition.BELOW_RIGHT:
+                # Right alignment
+                max_width = max(label_width, value_width)
+                value_x = base_x + max_width - value_width
+                label_x = base_x + max_width - label_width + offset_x
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+            
+            # === LEFT positions (label on left, value on right) ===
+            elif label_pos in (LabelPosition.LEFT, LabelPosition.LEFT_CENTER):
+                # Vertically centered
+                max_height = max(label_height, value_height)
+                label_y = base_y + (max_height - label_height) // 2 + offset_y
+                value_y = base_y + (max_height - value_height) // 2
                 label_with_colon = f"{label_text}: "
-                self._draw_text_with_effects(draw, image, config.position, label_with_colon, label_font, config.color)
-                # Calculate label width to position value after it
-                label_bbox = draw.textbbox(config.position, label_with_colon, font=label_font)
-                value_x = label_bbox[2]  # Right edge of label
-                self._draw_text_with_effects(draw, image, (value_x, config.position[1]), value_text, value_font, config.color)
-            elif label_pos == LabelPosition.RIGHT:
-                # Value :Label (draw separately for different font sizes)
-                self._draw_text_with_effects(draw, image, config.position, value_text, value_font, config.color)
-                value_bbox = draw.textbbox(config.position, value_text, font=value_font)
-                label_x = value_bbox[2]  # Right edge of value
-                self._draw_text_with_effects(draw, image, (label_x, config.position[1]), f" :{label_text}", label_font, config.color)
-            elif label_pos == LabelPosition.ABOVE:
-                # Label on top, value below - center label horizontally over value
-                label_bbox = draw.textbbox((0, 0), label_text, font=label_font)
-                value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
-                label_width = label_bbox[2] - label_bbox[0]
-                value_width = value_bbox[2] - value_bbox[0]
-                label_height = label_bbox[3] - label_bbox[1]
-                # Center label over value
-                if value_width > label_width:
-                    label_x = config.position[0] + (value_width - label_width) // 2
-                    value_x = config.position[0]
-                else:
-                    label_x = config.position[0]
-                    value_x = config.position[0] + (label_width - value_width) // 2
-                # Draw label at position (centered)
-                self._draw_text_with_effects(draw, image, (label_x, config.position[1]), label_text, label_font, config.color)
-                # Draw value below label (centered)
-                value_pos = (value_x, config.position[1] + label_height + 2)
-                self._draw_text_with_effects(draw, image, value_pos, value_text, value_font, config.color)
-            elif label_pos == LabelPosition.BELOW:
-                # Value on top, label below - center label horizontally under value
-                value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
-                label_bbox = draw.textbbox((0, 0), label_text, font=label_font)
-                value_width = value_bbox[2] - value_bbox[0]
-                label_width = label_bbox[2] - label_bbox[0]
-                value_height = value_bbox[3] - value_bbox[1]
-                # Center the narrower text under/over the wider one
-                if value_width > label_width:
-                    value_x = config.position[0]
-                    label_x = config.position[0] + (value_width - label_width) // 2
-                else:
-                    value_x = config.position[0] + (label_width - value_width) // 2
-                    label_x = config.position[0]
-                # Draw value at position (centered)
-                self._draw_text_with_effects(draw, image, (value_x, config.position[1]), value_text, value_font, config.color)
-                # Draw label below value (centered)
-                label_pos_y = (label_x, config.position[1] + value_height + 2)
-                self._draw_text_with_effects(draw, image, label_pos_y, label_text, label_font, config.color)
+                label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
+                label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color)
+            
+            elif label_pos == LabelPosition.LEFT_TOP:
+                # Top aligned
+                label_with_colon = f"{label_text}: "
+                label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
+                label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, base_y + offset_y), label_with_colon, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, base_y), value_text, value_font, config.color)
+            
+            elif label_pos == LabelPosition.LEFT_BOTTOM:
+                # Bottom aligned
+                max_height = max(label_height, value_height)
+                label_y = base_y + max_height - label_height + offset_y
+                value_y = base_y + max_height - value_height
+                label_with_colon = f"{label_text}: "
+                label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
+                label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color)
+            
+            # === RIGHT positions (value on left, label on right) ===
+            elif label_pos in (LabelPosition.RIGHT, LabelPosition.RIGHT_CENTER):
+                # Vertically centered
+                max_height = max(label_height, value_height)
+                value_y = base_y + (max_height - value_height) // 2
+                label_y = base_y + (max_height - label_height) // 2 + offset_y
+                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color)
+            
+            elif label_pos == LabelPosition.RIGHT_TOP:
+                # Top aligned
+                self._draw_text_with_effects(draw, image, (base_x, base_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, base_y + offset_y), f" :{label_text}", label_font, config.color)
+            
+            elif label_pos == LabelPosition.RIGHT_BOTTOM:
+                # Bottom aligned
+                max_height = max(label_height, value_height)
+                value_y = base_y + max_height - value_height
+                label_y = base_y + max_height - label_height + offset_y
+                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color)
+            
             else:
                 # Fallback - use old format string method with value font
                 try:
@@ -716,13 +779,27 @@ class TextRenderer:
         radius = config.radius
         thickness = config.thickness
         
-        # Create temp image large enough for the arc with some padding
-        size = (radius + thickness) * 2 + 4
-        arc_img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        # Calculate base size (same formula as GUI)
+        border_padding = 4
+        diameter = radius * 2
+        base_size = diameter + thickness + border_padding * 2
+        
+        # Calculate total size accounting for rotation (must match GUI's get_position)
+        if rotation != 0:
+            angle_rad = math.radians(rotation)
+            cos_a = abs(math.cos(angle_rad))
+            sin_a = abs(math.sin(angle_rad))
+            rotated_size = int(base_size * cos_a + base_size * sin_a)
+            total_size = max(base_size, rotated_size)
+        else:
+            total_size = base_size
+        
+        # Create temp image at total_size to match GUI widget size
+        arc_img = Image.new('RGBA', (total_size, total_size), (0, 0, 0, 0))
         arc_draw = ImageDraw.Draw(arc_img)
         
         # Draw arc centered in temp image
-        center = size // 2
+        center = total_size // 2
         bbox = [
             center - radius,
             center - radius,
@@ -766,13 +843,14 @@ class TextRenderer:
             ]
             arc_draw.arc(inner_bbox, pil_end, pil_start, fill=config.border_color, width=border_width)
         
-        # Rotate the arc image
+        # Rotate the arc image around its center
         rotated = arc_img.rotate(-rotation, expand=False, resample=Image.BICUBIC)
         
         # Calculate paste position (center at config.position)
+        # Use total_size to match GUI's get_position calculation
         cx, cy = config.position
-        paste_x = cx - size // 2
-        paste_y = cy - size // 2
+        paste_x = cx - total_size // 2
+        paste_y = cy - total_size // 2
         
         # Paste onto main image using alpha channel as mask
         image.paste(rotated, (paste_x, paste_y), rotated)

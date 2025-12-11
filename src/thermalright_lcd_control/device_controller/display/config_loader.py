@@ -38,11 +38,25 @@ class ConfigLoader:
     def _parse_label_position(self, position_str: str) -> LabelPosition:
         """Parse label position from string"""
         position_map = {
+            # Legacy positions (backward compatibility)
             "left": LabelPosition.LEFT,
             "right": LabelPosition.RIGHT,
             "above": LabelPosition.ABOVE,
             "below": LabelPosition.BELOW,
-            "none": LabelPosition.NONE
+            "none": LabelPosition.NONE,
+            # New grid-based positions
+            "above-left": LabelPosition.ABOVE_LEFT,
+            "above-center": LabelPosition.ABOVE_CENTER,
+            "above-right": LabelPosition.ABOVE_RIGHT,
+            "below-left": LabelPosition.BELOW_LEFT,
+            "below-center": LabelPosition.BELOW_CENTER,
+            "below-right": LabelPosition.BELOW_RIGHT,
+            "left-top": LabelPosition.LEFT_TOP,
+            "left-center": LabelPosition.LEFT_CENTER,
+            "left-bottom": LabelPosition.LEFT_BOTTOM,
+            "right-top": LabelPosition.RIGHT_TOP,
+            "right-center": LabelPosition.RIGHT_CENTER,
+            "right-bottom": LabelPosition.RIGHT_BOTTOM,
         }
         return position_map.get(position_str.lower(), LabelPosition.LEFT)
 
@@ -63,6 +77,8 @@ class ConfigLoader:
             unit=metric_data.get("unit", ""),
             enabled=metric_data.get("enabled", True),
             label_position=self._parse_label_position(label_pos_str),
+            label_offset_x=metric_data.get("label_offset_x", 0),
+            label_offset_y=metric_data.get("label_offset_y", 0),
             freq_format=metric_data.get("freq_format", "mhz"),
             char_limit=metric_data.get("char_limit", 0)
         )

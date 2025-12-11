@@ -84,12 +84,33 @@ class TimeConfig(TextConfig):
 
 
 class LabelPosition(Enum):
-    """Position of label relative to value"""
-    LEFT = "left"      # Label: Value (default)
-    RIGHT = "right"    # Value :Label
-    ABOVE = "above"    # Label on top, value below
-    BELOW = "below"    # Value on top, label below
-    NONE = "none"      # No label, just value
+    """Position of label relative to value - grid-based with 12 positions"""
+    # Legacy positions (for backward compatibility)
+    LEFT = "left"          # Alias for LEFT_CENTER
+    RIGHT = "right"        # Alias for RIGHT_CENTER
+    ABOVE = "above"        # Alias for ABOVE_CENTER
+    BELOW = "below"        # Alias for BELOW_CENTER
+    NONE = "none"          # No label, just value
+    
+    # Above positions (label on top)
+    ABOVE_LEFT = "above-left"
+    ABOVE_CENTER = "above-center"
+    ABOVE_RIGHT = "above-right"
+    
+    # Below positions (label on bottom)
+    BELOW_LEFT = "below-left"
+    BELOW_CENTER = "below-center"
+    BELOW_RIGHT = "below-right"
+    
+    # Left positions (label on left side)
+    LEFT_TOP = "left-top"
+    LEFT_CENTER = "left-center"
+    LEFT_BOTTOM = "left-bottom"
+    
+    # Right positions (label on right side)
+    RIGHT_TOP = "right-top"
+    RIGHT_CENTER = "right-center"
+    RIGHT_BOTTOM = "right-bottom"
 
 
 @dataclass
@@ -105,6 +126,8 @@ class MetricConfig:
     unit: str = ""
     enabled: bool = True
     label_position: LabelPosition = LabelPosition.LEFT
+    label_offset_x: int = 0  # Horizontal offset for label positioning
+    label_offset_y: int = 0  # Vertical offset for label positioning
     freq_format: str = "mhz"  # Frequency format: "mhz" or "ghz"
     char_limit: int = 0  # Character limit for name metrics (0 = no limit)
 

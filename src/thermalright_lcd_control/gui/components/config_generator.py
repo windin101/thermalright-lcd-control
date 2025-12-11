@@ -97,6 +97,8 @@ class ConfigGenerator:
                     label = widget.get_label()
                     unit = widget.get_unit()
                     label_position = widget.get_label_position()
+                    label_offset_x = widget.get_label_offset_x()
+                    label_offset_y = widget.get_label_offset_y()
                     default_format = metric_format_defaults.get(metric_name, "{label}{value}{unit}")
 
                     # Convert position from preview to device coordinates
@@ -104,6 +106,8 @@ class ConfigGenerator:
                         "name": metric_name,
                         "label": label,
                         "label_position": label_position,
+                        "label_offset_x": label_offset_x,
+                        "label_offset_y": label_offset_y,
                         "enabled": widget.enabled,
                         "position": {"x": int(widget.pos().x() / scale), "y": int(widget.pos().y() / scale)},
                         "font_size": widget.get_font_size(),

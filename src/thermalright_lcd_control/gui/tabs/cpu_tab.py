@@ -28,6 +28,8 @@ class CPUTab(QWidget):
         self.metric_label_inputs = {}
         self.metric_label_position_combos = {}
         self.metric_label_font_size_spins = {}
+        self.metric_label_offset_x_spins = {}
+        self.metric_label_offset_y_spins = {}
         self.metric_unit_inputs = {}
         self.metric_freq_format_combos = {}
         
@@ -193,12 +195,25 @@ class CPUTab(QWidget):
             pos_label.setFixedWidth(55)
             row.addWidget(pos_label, alignment=Qt.AlignVCenter)
             position_combo = QComboBox()
-            position_combo.addItem("Left", "left")
-            position_combo.addItem("Right", "right")
-            position_combo.addItem("Above", "above")
-            position_combo.addItem("Below", "below")
-            position_combo.addItem("Hidden", "hidden")
-            position_combo.setFixedWidth(80)
+            # Grid-based positions organized by category
+            position_combo.addItem("None", "none")
+            position_combo.insertSeparator(position_combo.count())
+            position_combo.addItem("Above Left", "above-left")
+            position_combo.addItem("Above Center", "above-center")
+            position_combo.addItem("Above Right", "above-right")
+            position_combo.insertSeparator(position_combo.count())
+            position_combo.addItem("Below Left", "below-left")
+            position_combo.addItem("Below Center", "below-center")
+            position_combo.addItem("Below Right", "below-right")
+            position_combo.insertSeparator(position_combo.count())
+            position_combo.addItem("Left Top", "left-top")
+            position_combo.addItem("Left Center", "left-center")
+            position_combo.addItem("Left Bottom", "left-bottom")
+            position_combo.insertSeparator(position_combo.count())
+            position_combo.addItem("Right Top", "right-top")
+            position_combo.addItem("Right Center", "right-center")
+            position_combo.addItem("Right Bottom", "right-bottom")
+            position_combo.setFixedWidth(110)
             position_combo.currentIndexChanged.connect(
                 lambda idx, name=metric_name, combo=position_combo: 
                     self.parent.on_metric_label_position_changed(name, combo.currentData()))
@@ -217,6 +232,32 @@ class CPUTab(QWidget):
                 lambda val, name=metric_name: self.parent.on_metric_label_font_size_changed(name, val))
             self.metric_label_font_size_spins[metric_name] = label_font_size_spin
             row.addWidget(label_font_size_spin, alignment=Qt.AlignVCenter)
+            
+            # Label offset X
+            offset_x_label = QLabel("X:")
+            offset_x_label.setFixedWidth(15)
+            row.addWidget(offset_x_label, alignment=Qt.AlignVCenter)
+            offset_x_spin = QSpinBox()
+            offset_x_spin.setRange(-200, 200)
+            offset_x_spin.setValue(0)
+            offset_x_spin.setFixedWidth(55)
+            offset_x_spin.valueChanged.connect(
+                lambda val, name=metric_name: self.parent.on_metric_label_offset_x_changed(name, val))
+            self.metric_label_offset_x_spins[metric_name] = offset_x_spin
+            row.addWidget(offset_x_spin, alignment=Qt.AlignVCenter)
+            
+            # Label offset Y
+            offset_y_label = QLabel("Y:")
+            offset_y_label.setFixedWidth(15)
+            row.addWidget(offset_y_label, alignment=Qt.AlignVCenter)
+            offset_y_spin = QSpinBox()
+            offset_y_spin.setRange(-200, 200)
+            offset_y_spin.setValue(0)
+            offset_y_spin.setFixedWidth(55)
+            offset_y_spin.valueChanged.connect(
+                lambda val, name=metric_name: self.parent.on_metric_label_offset_y_changed(name, val))
+            self.metric_label_offset_y_spins[metric_name] = offset_y_spin
+            row.addWidget(offset_y_spin, alignment=Qt.AlignVCenter)
         
         # Frequency format for cpu_frequency
         if metric_name == "cpu_frequency":

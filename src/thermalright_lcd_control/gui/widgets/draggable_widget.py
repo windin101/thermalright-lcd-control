@@ -872,11 +872,35 @@ class MetricWidget(DraggableWidget):
     """Generic metric display widget"""
     
     # Label position constants (matching service-side LabelPosition enum)
+    # Legacy positions
     LABEL_LEFT = "left"
     LABEL_RIGHT = "right"
     LABEL_ABOVE = "above"
     LABEL_BELOW = "below"
     LABEL_NONE = "none"
+    # New grid-based positions
+    LABEL_ABOVE_LEFT = "above-left"
+    LABEL_ABOVE_CENTER = "above-center"
+    LABEL_ABOVE_RIGHT = "above-right"
+    LABEL_BELOW_LEFT = "below-left"
+    LABEL_BELOW_CENTER = "below-center"
+    LABEL_BELOW_RIGHT = "below-right"
+    LABEL_LEFT_TOP = "left-top"
+    LABEL_LEFT_CENTER = "left-center"
+    LABEL_LEFT_BOTTOM = "left-bottom"
+    LABEL_RIGHT_TOP = "right-top"
+    LABEL_RIGHT_CENTER = "right-center"
+    LABEL_RIGHT_BOTTOM = "right-bottom"
+    
+    # All valid positions
+    VALID_POSITIONS = [
+        LABEL_NONE,
+        LABEL_LEFT, LABEL_RIGHT, LABEL_ABOVE, LABEL_BELOW,  # Legacy
+        LABEL_ABOVE_LEFT, LABEL_ABOVE_CENTER, LABEL_ABOVE_RIGHT,
+        LABEL_BELOW_LEFT, LABEL_BELOW_CENTER, LABEL_BELOW_RIGHT,
+        LABEL_LEFT_TOP, LABEL_LEFT_CENTER, LABEL_LEFT_BOTTOM,
+        LABEL_RIGHT_TOP, LABEL_RIGHT_CENTER, LABEL_RIGHT_BOTTOM,
+    ]
 
     def __init__(self, metric: type[CpuMetrics | GpuMetrics], parent=None, metric_name="", display_text=""):
         super().__init__(parent, display_text, metric_name)
@@ -887,6 +911,8 @@ class MetricWidget(DraggableWidget):
         self.custom_unit = ""
         self.label_position = self.LABEL_LEFT  # Default: label on left
         self._label_font_size = None  # None means use same as value font size
+        self._label_offset_x = 0  # Horizontal offset for label
+        self._label_offset_y = 0  # Vertical offset for label
         self._freq_format = "mhz"  # Default frequency format (mhz or ghz)
         self._char_limit = 0  # 0 means no limit
         self._update_format()
@@ -900,15 +926,21 @@ class MetricWidget(DraggableWidget):
 
     def _update_format(self):
         """Update format string based on label position"""
+        # Map positions to their display format type
+        above_positions = [self.LABEL_ABOVE, self.LABEL_ABOVE_LEFT, self.LABEL_ABOVE_CENTER, self.LABEL_ABOVE_RIGHT]
+        below_positions = [self.LABEL_BELOW, self.LABEL_BELOW_LEFT, self.LABEL_BELOW_CENTER, self.LABEL_BELOW_RIGHT]
+        left_positions = [self.LABEL_LEFT, self.LABEL_LEFT_TOP, self.LABEL_LEFT_CENTER, self.LABEL_LEFT_BOTTOM]
+        right_positions = [self.LABEL_RIGHT, self.LABEL_RIGHT_TOP, self.LABEL_RIGHT_CENTER, self.LABEL_RIGHT_BOTTOM]
+        
         if self.label_position == self.LABEL_NONE or not self.custom_label:
             self.format = "{value}{unit}"
-        elif self.label_position == self.LABEL_LEFT:
+        elif self.label_position in left_positions:
             self.format = "{label}: {value}{unit}"
-        elif self.label_position == self.LABEL_RIGHT:
+        elif self.label_position in right_positions:
             self.format = "{value}{unit} :{label}"
-        elif self.label_position == self.LABEL_ABOVE:
+        elif self.label_position in above_positions:
             self.format = "{label}\n{value}{unit}"
-        elif self.label_position == self.LABEL_BELOW:
+        elif self.label_position in below_positions:
             self.format = "{value}{unit}\n{label}"
         else:
             self.format = "{label}: {value}{unit}"
@@ -919,15 +951,21 @@ class MetricWidget(DraggableWidget):
         value = self.get_value()
         unit = self.get_unit()
         
+        # Map positions to their display format type
+        above_positions = [self.LABEL_ABOVE, self.LABEL_ABOVE_LEFT, self.LABEL_ABOVE_CENTER, self.LABEL_ABOVE_RIGHT]
+        below_positions = [self.LABEL_BELOW, self.LABEL_BELOW_LEFT, self.LABEL_BELOW_CENTER, self.LABEL_BELOW_RIGHT]
+        left_positions = [self.LABEL_LEFT, self.LABEL_LEFT_TOP, self.LABEL_LEFT_CENTER, self.LABEL_LEFT_BOTTOM]
+        right_positions = [self.LABEL_RIGHT, self.LABEL_RIGHT_TOP, self.LABEL_RIGHT_CENTER, self.LABEL_RIGHT_BOTTOM]
+        
         if self.label_position == self.LABEL_NONE or not label:
             return f"{value}{unit}"
-        elif self.label_position == self.LABEL_LEFT:
+        elif self.label_position in left_positions:
             return f"{label}: {value}{unit}"
-        elif self.label_position == self.LABEL_RIGHT:
+        elif self.label_position in right_positions:
             return f"{value}{unit} :{label}"
-        elif self.label_position == self.LABEL_ABOVE:
+        elif self.label_position in above_positions:
             return f"{label}\n{value}{unit}"
-        elif self.label_position == self.LABEL_BELOW:
+        elif self.label_position in below_positions:
             return f"{value}{unit}\n{label}"
         else:
             return f"{label}: {value}{unit}"
@@ -945,7 +983,7 @@ class MetricWidget(DraggableWidget):
 
     def set_label_position(self, position: str):
         """Set the label position relative to value"""
-        if position in [self.LABEL_LEFT, self.LABEL_RIGHT, self.LABEL_ABOVE, self.LABEL_BELOW, self.LABEL_NONE]:
+        if position in self.VALID_POSITIONS:
             self.label_position = position
             self._update_format()
             self.update_display()
@@ -953,6 +991,24 @@ class MetricWidget(DraggableWidget):
     def get_label_position(self) -> str:
         """Get current label position"""
         return self.label_position
+
+    def set_label_offset_x(self, offset: int):
+        """Set horizontal offset for label positioning"""
+        self._label_offset_x = offset
+        self.update_display()
+
+    def get_label_offset_x(self) -> int:
+        """Get horizontal offset for label"""
+        return self._label_offset_x
+
+    def set_label_offset_y(self, offset: int):
+        """Set vertical offset for label positioning"""
+        self._label_offset_y = offset
+        self.update_display()
+
+    def get_label_offset_y(self) -> int:
+        """Get vertical offset for label"""
+        return self._label_offset_y
 
     def set_label_font_size(self, size: int):
         """Set individual font size for labels"""
@@ -1023,18 +1079,36 @@ class MetricWidget(DraggableWidget):
         label_span = f'<span style="{label_style}">{label}</span>'
         value_span = f'<span style="{value_style}">{value}{unit}</span>'
         
+        # Group positions by layout type
+        above_positions = [self.LABEL_ABOVE, self.LABEL_ABOVE_LEFT, self.LABEL_ABOVE_CENTER, self.LABEL_ABOVE_RIGHT]
+        below_positions = [self.LABEL_BELOW, self.LABEL_BELOW_LEFT, self.LABEL_BELOW_CENTER, self.LABEL_BELOW_RIGHT]
+        left_positions = [self.LABEL_LEFT, self.LABEL_LEFT_TOP, self.LABEL_LEFT_CENTER, self.LABEL_LEFT_BOTTOM]
+        right_positions = [self.LABEL_RIGHT, self.LABEL_RIGHT_TOP, self.LABEL_RIGHT_CENTER, self.LABEL_RIGHT_BOTTOM]
+        
         if self.label_position == self.LABEL_NONE or not label:
             return value_span
-        elif self.label_position == self.LABEL_LEFT:
+        elif self.label_position in left_positions:
             return f'{label_span}<span style="{label_style}">: </span>{value_span}'
-        elif self.label_position == self.LABEL_RIGHT:
+        elif self.label_position in right_positions:
             return f'{value_span}<span style="{label_style}"> :</span>{label_span}'
-        elif self.label_position == self.LABEL_ABOVE:
-            # Center-align both lines using div with text-align center
-            return f'<div style="text-align: center;">{label_span}<br>{value_span}</div>'
-        elif self.label_position == self.LABEL_BELOW:
-            # Center-align both lines using div with text-align center
-            return f'<div style="text-align: center;">{value_span}<br>{label_span}</div>'
+        elif self.label_position in above_positions:
+            # Determine text-align based on position variant
+            if self.label_position == self.LABEL_ABOVE_LEFT:
+                align = "left"
+            elif self.label_position == self.LABEL_ABOVE_RIGHT:
+                align = "right"
+            else:
+                align = "center"
+            return f'<div style="text-align: {align};">{label_span}<br>{value_span}</div>'
+        elif self.label_position in below_positions:
+            # Determine text-align based on position variant
+            if self.label_position == self.LABEL_BELOW_LEFT:
+                align = "left"
+            elif self.label_position == self.LABEL_BELOW_RIGHT:
+                align = "right"
+            else:
+                align = "center"
+            return f'<div style="text-align: {align};">{value_span}<br>{label_span}</div>'
         else:
             return f'{label_span}<span style="{label_style}">: </span>{value_span}'
 
@@ -1904,10 +1978,25 @@ class CircularGraphWidget(QLabel):
         self.update_display()
     
     def get_position(self) -> tuple:
-        """Get center position adjusted for border padding and radius"""
+        """Get center position adjusted for border padding, radius, and rotation"""
+        import math
+        
         border_padding = 4
+        diameter = self._radius * 2
+        base_size = diameter + self._thickness + border_padding * 2
+        
+        # Calculate total size accounting for rotation
+        if self._rotation != 0:
+            angle_rad = math.radians(self._rotation)
+            cos_a = abs(math.cos(angle_rad))
+            sin_a = abs(math.sin(angle_rad))
+            rotated_size = int(base_size * cos_a + base_size * sin_a)
+            total_size = max(base_size, rotated_size)
+        else:
+            total_size = base_size
+        
         pos = self.pos()
-        # Return the center of the arc
-        center_x = pos.x() + border_padding + self._radius + self._thickness // 2
-        center_y = pos.y() + border_padding + self._radius + self._thickness // 2
+        # Return the center of the widget
+        center_x = pos.x() + total_size // 2
+        center_y = pos.y() + total_size // 2
         return (center_x, center_y)

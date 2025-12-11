@@ -32,6 +32,7 @@ class CPUTab(QWidget):
         self.metric_label_offset_y_spins = {}
         self.metric_unit_inputs = {}
         self.metric_freq_format_combos = {}
+        self.metric_char_limit_spins = {}
         
         # Bar graph controls
         self.bar_checkboxes = {}
@@ -273,6 +274,22 @@ class CPUTab(QWidget):
                     self.parent.on_metric_freq_format_changed(name, combo.currentData()))
             self.metric_freq_format_combos[metric_name] = freq_combo
             row.addWidget(freq_combo, alignment=Qt.AlignVCenter)
+        
+        # Character limit for cpu_name
+        if metric_name == "cpu_name":
+            char_limit_label = QLabel("Max Chars:")
+            char_limit_label.setFixedWidth(65)
+            row.addWidget(char_limit_label, alignment=Qt.AlignVCenter)
+            char_limit_spin = QSpinBox()
+            char_limit_spin.setRange(0, 100)
+            char_limit_spin.setValue(0)
+            char_limit_spin.setSpecialValueText("No limit")
+            char_limit_spin.setToolTip("Limit the number of characters displayed (0 = no limit)")
+            char_limit_spin.setFixedWidth(75)
+            char_limit_spin.valueChanged.connect(
+                lambda val, name=metric_name: self.parent.on_metric_char_limit_changed(name, val))
+            self.metric_char_limit_spins[metric_name] = char_limit_spin
+            row.addWidget(char_limit_spin, alignment=Qt.AlignVCenter)
         
         row.addStretch()
         return row

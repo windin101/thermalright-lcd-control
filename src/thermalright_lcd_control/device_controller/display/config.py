@@ -21,6 +21,9 @@ class TextConfig:
     position: Tuple[int, int] = (0, 0)  # (x, y)
     font_size: int = 20
     color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # RGBA
+    font_name: Optional[str] = None  # Font family name (None = use default)
+    bold: bool = False  # Whether to use bold variant
+    use_gradient: bool = True  # Whether to use global gradient (False = use solid color)
     enabled: bool = True
 
 
@@ -122,6 +125,9 @@ class MetricConfig:
     font_size: int = 16
     label_font_size: Optional[int] = None  # None means use font_size
     color: Tuple[int, int, int, int] = (255, 255, 255, 255)
+    font_name: Optional[str] = None  # Font family name (None = use default)
+    bold: bool = False  # Whether to use bold variant
+    use_gradient: bool = True  # Whether to use global gradient (False = use solid color)
     format_string: str = "{label}{value}"
     unit: str = ""
     enabled: bool = True

@@ -6,13 +6,54 @@ import math
 import threading
 from datetime import datetime
 
+from PIL import Image, ImageDraw, ImageFont
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal
 from PySide6.QtGui import QMouseEvent, QColor, QPixmap, QPainter, QPen, QConicalGradient
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QLabel, QWidget, QPushButton
 
 from thermalright_lcd_control.device_controller.display.utils import _get_default_font_name
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
+
+
+def _get_pil_text_size(text: str, font_family: str, font_size: int, bold: bool = False) -> tuple[int, int]:
+    """Calculate text size using PIL to match the actual rendered size.
+    
+    Returns (width, height) tuple that matches what PIL renders when drawing at (x, y).
+    The height uses ascent+descent (full line height) to match PIL's text positioning.
+    """
+    if not text:
+        return (1, 1)
+    
+    try:
+        # Use the global font manager to get fonts consistently with per-widget font settings
+        from thermalright_lcd_control.device_controller.display.font_manager import get_font_manager
+        font_manager = get_font_manager()
+        font = font_manager.get_font(font_size, font_family if font_family else None, bold)
+    except Exception:
+        # Fallback to default font
+        try:
+            font = ImageFont.truetype(font_family, font_size)
+        except Exception:
+            font = ImageFont.load_default()
+    
+    # Create a temporary image to measure text
+    temp_img = Image.new('RGBA', (1, 1))
+    draw = ImageDraw.Draw(temp_img)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    
+    # Width from bbox (right - left)
+    width = bbox[2] - bbox[0]
+    
+    # Height: use ascent + descent for full line height
+    # This matches how the widget box should cover the full text area
+    try:
+        ascent, descent = font.getmetrics()
+        height = ascent + descent
+    except Exception:
+        height = bbox[3] - bbox[1]
+    
+    return (max(1, width), max(1, height))
 
 # Shared metrics cache for non-blocking widget updates
 class _MetricsCache:
@@ -183,6 +224,1565 @@ def _interpolate_gradient_color(normalized_value: float, gradient_colors: list) 
     return QColor(r, g, b, a)
 
 
+class ResizeHandle(QWidget):
+    """Small draggable handle for resizing widgets.
+    
+    Positioned at corners or edges of a selected widget to allow resizing.
+    """
+    
+    # Signals
+    resizeRequested = Signal(str, int, int)  # handle_type, delta_x, delta_y
+    
+    HANDLE_SIZE = 10
+    
+    def __init__(self, parent=None, handle_type="bottom-right"):
+        """
+        Args:
+            parent: Parent widget
+            handle_type: One of 'top-left', 'top-right', 'bottom-left', 'bottom-right',
+                        'top', 'bottom', 'left', 'right'
+        """
+        super().__init__(parent)
+        self._handle_type = handle_type
+        self._dragging = False
+        self._drag_start = QPoint()
+        
+        self.setFixedSize(self.HANDLE_SIZE, self.HANDLE_SIZE)
+        self.setFocusPolicy(Qt.NoFocus)  # Don't steal focus from the widget
+        self._update_cursor()
+        self.setStyleSheet("""
+            background-color: #2ecc71;
+            border: 1px solid #27ae60;
+            border-radius: 2px;
+        """)
+        self.hide()
+    
+    def _update_cursor(self):
+        """Set appropriate cursor based on handle type"""
+        cursors = {
+            'top-left': Qt.SizeFDiagCursor,
+            'bottom-right': Qt.SizeFDiagCursor,
+            'top-right': Qt.SizeBDiagCursor,
+            'bottom-left': Qt.SizeBDiagCursor,
+            'top': Qt.SizeVerCursor,
+            'bottom': Qt.SizeVerCursor,
+            'left': Qt.SizeHorCursor,
+            'right': Qt.SizeHorCursor,
+        }
+        self.setCursor(cursors.get(self._handle_type, Qt.SizeAllCursor))
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._drag_start = event.globalPos()
+            event.accept()
+    
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            delta = event.globalPos() - self._drag_start
+            self._drag_start = event.globalPos()
+            self.resizeRequested.emit(self._handle_type, delta.x(), delta.y())
+            event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            event.accept()
+
+
+class RotationHandle(QWidget):
+    """Circular handle for rotating widgets.
+    
+    Positioned above the selected widget, connected by a line.
+    Drag to rotate the widget around its center.
+    """
+    
+    # Signal emitted when rotation is requested
+    rotationRequested = Signal(float)  # angle in degrees
+    
+    HANDLE_SIZE = 14
+    STEM_LENGTH = 25  # Distance from widget top to handle center
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dragging = False
+        self._drag_start = QPoint()
+        self._widget_center = QPoint()  # Center of the target widget
+        
+        self.setFixedSize(self.HANDLE_SIZE, self.HANDLE_SIZE)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        # Don't use stylesheet - we'll paint it manually for better visibility
+        self.setAutoFillBackground(False)
+        self.hide()
+    
+    def paintEvent(self, event):
+        """Paint the rotation handle as a filled circle"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Draw filled purple circle
+        painter.setBrush(QColor(155, 89, 182))  # #9b59b6
+        painter.setPen(QPen(QColor(142, 68, 173), 2))  # #8e44ad border
+        
+        # Draw circle (leave 1px margin for border)
+        painter.drawEllipse(1, 1, self.HANDLE_SIZE - 2, self.HANDLE_SIZE - 2)
+        painter.end()
+    
+    def set_widget_center(self, center: QPoint):
+        """Set the center point of the target widget for angle calculations"""
+        self._widget_center = center
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._drag_start = event.globalPos()
+            event.accept()
+    
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            # Calculate angle from widget center to current mouse position
+            # Convert global pos to parent coordinates
+            current_pos = self.parent().mapFromGlobal(event.globalPos())
+            
+            # Calculate angle from center to mouse position
+            dx = current_pos.x() - self._widget_center.x()
+            dy = current_pos.y() - self._widget_center.y()
+            
+            # atan2 gives angle in radians, convert to degrees
+            # Adjust so 0 degrees is "up" (negative y-axis)
+            angle_rad = math.atan2(dx, -dy)
+            angle_deg = math.degrees(angle_rad)
+            
+            # Normalize to 0-360
+            if angle_deg < 0:
+                angle_deg += 360
+            
+            # Snap to cardinal angles (0, 90, 180, 270) if within threshold
+            snap_threshold = 8  # degrees - how close to snap
+            snap_angles = [0, 90, 180, 270, 360]
+            
+            for snap_angle in snap_angles:
+                diff = abs(angle_deg - snap_angle)
+                if diff <= snap_threshold:
+                    angle_deg = snap_angle % 360  # 360 becomes 0
+                    break
+            
+            self.rotationRequested.emit(angle_deg)
+            event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            event.accept()
+
+
+class ResizeHandleManager(QWidget):
+    """Manages resize handles for a selected widget.
+    
+    Creates and positions handles around a target widget, and translates
+    handle drag events into resize operations on the target.
+    """
+    
+    # Emitted when target widget's size/font changes
+    sizeChanged = Signal(object, str, object)  # target_widget, property_name, new_value
+    rotationChanged = Signal(object, float)  # target_widget, angle in degrees
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._target = None
+        self._handles = {}
+        self._rotation_handle = None
+        self._preview_scale = 1.0
+        self._accumulated_delta = 0.0  # For smooth text resizing
+        
+        # Create resize handles (initially hidden)
+        handle_types = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+        for ht in handle_types:
+            handle = ResizeHandle(parent, ht)
+            handle.resizeRequested.connect(self._on_resize_requested)
+            self._handles[ht] = handle
+        
+        # Create rotation handle (for bar/arc widgets)
+        self._rotation_handle = RotationHandle(parent)
+        self._rotation_handle.rotationRequested.connect(self._on_rotation_requested)
+        
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.hide()
+    
+    def set_preview_scale(self, scale: float):
+        """Update preview scale for calculations"""
+        self._preview_scale = scale
+        self._update_handle_positions()
+    
+    def attach_to(self, target_widget):
+        """Attach resize handles to a widget"""
+        if self._target == target_widget:
+            return
+        
+        self._target = target_widget
+        self._accumulated_delta = 0.0  # Reset accumulated delta for new widget
+        
+        if target_widget is None:
+            self._hide_all_handles()
+            return
+        
+        # Determine which handles to show based on widget type
+        self._show_appropriate_handles()
+        self._update_handle_positions()
+    
+    def detach(self):
+        """Detach handles from current widget"""
+        self._target = None
+        self._accumulated_delta = 0.0  # Reset accumulated delta
+        self._hide_all_handles()
+    
+    def _hide_all_handles(self):
+        """Hide all resize and rotation handles"""
+        for handle in self._handles.values():
+            handle.hide()
+        if self._rotation_handle:
+            self._rotation_handle.hide()
+    
+    def _show_appropriate_handles(self):
+        """Show handles appropriate for the target widget type"""
+        if self._target is None:
+            return
+        
+        # Get target class name to determine handle types
+        class_name = self._target.__class__.__name__
+        
+        # All widget types get corner handles
+        for ht, handle in self._handles.items():
+            handle.show()
+            handle.raise_()
+        
+        # Only bar and arc widgets get rotation handle
+        if class_name in ('BarGraphWidget', 'CircularGraphWidget'):
+            self._rotation_handle.show()
+            self._rotation_handle.raise_()
+        else:
+            self._rotation_handle.hide()
+    
+    def _update_handle_positions(self):
+        """Position handles around the target widget.
+        
+        For rotatable widgets (bar/arc), use the base dimensions instead of
+        the rotated bounding box to keep handles at consistent positions.
+        """
+        if self._target is None:
+            return
+        
+        class_name = self._target.__class__.__name__
+        target_rect = self._target.geometry()
+        handle_size = ResizeHandle.HANDLE_SIZE
+        half_size = handle_size // 2
+        
+        # For bar/arc widgets, calculate handle positions based on unrotated size
+        if class_name == 'BarGraphWidget':
+            # Get base dimensions (unrotated) and apply preview scale
+            base_width = int(self._target.get_width() * self._preview_scale)
+            base_height = int(self._target.get_height() * self._preview_scale)
+            border_padding = 4
+            
+            # Widget center stays the same
+            center_x = target_rect.center().x()
+            center_y = target_rect.center().y()
+            
+            # Calculate corners based on unrotated dimensions from center
+            left = center_x - base_width // 2 - border_padding
+            right = center_x + base_width // 2 + border_padding
+            top = center_y - base_height // 2 - border_padding
+            bottom = center_y + base_height // 2 + border_padding
+            
+            positions = {
+                'top-left': (left - half_size, top - half_size),
+                'top-right': (right - half_size, top - half_size),
+                'bottom-left': (left - half_size, bottom - half_size),
+                'bottom-right': (right - half_size, bottom - half_size),
+            }
+        elif class_name == 'CircularGraphWidget':
+            # For arc widgets, use radius-based sizing
+            base_radius = int(self._target.get_radius() * self._preview_scale)
+            base_thickness = int(self._target.get_thickness() * self._preview_scale)
+            border_padding = 4
+            
+            # Widget center
+            center_x = target_rect.center().x()
+            center_y = target_rect.center().y()
+            
+            # Size based on diameter + thickness
+            half_size_arc = base_radius + base_thickness // 2 + border_padding
+            
+            positions = {
+                'top-left': (center_x - half_size_arc - half_size, center_y - half_size_arc - half_size),
+                'top-right': (center_x + half_size_arc - half_size, center_y - half_size_arc - half_size),
+                'bottom-left': (center_x - half_size_arc - half_size, center_y + half_size_arc - half_size),
+                'bottom-right': (center_x + half_size_arc - half_size, center_y + half_size_arc - half_size),
+            }
+        else:
+            # For other widgets, use the actual geometry
+            positions = {
+                'top-left': (target_rect.left() - half_size, target_rect.top() - half_size),
+                'top-right': (target_rect.right() - half_size, target_rect.top() - half_size),
+                'bottom-left': (target_rect.left() - half_size, target_rect.bottom() - half_size),
+                'bottom-right': (target_rect.right() - half_size, target_rect.bottom() - half_size),
+            }
+        
+        for ht, (x, y) in positions.items():
+            if ht in self._handles:
+                self._handles[ht].move(int(x), int(y))
+                self._handles[ht].raise_()  # Ensure handles stay on top
+        
+        # Position rotation handle - always at the top of the widget
+        if self._rotation_handle and self._rotation_handle.isVisible():
+            rot_handle_size = RotationHandle.HANDLE_SIZE
+            stem_length = RotationHandle.STEM_LENGTH
+            
+            center_x = target_rect.center().x()
+            center_y = target_rect.center().y()
+            
+            # Calculate orbit distance based on widget type
+            if class_name == 'BarGraphWidget':
+                base_height = int(self._target.get_height() * self._preview_scale)
+                orbit_radius = base_height // 2 + stem_length + 4
+            elif class_name == 'CircularGraphWidget':
+                base_radius = int(self._target.get_radius() * self._preview_scale)
+                base_thickness = int(self._target.get_thickness() * self._preview_scale)
+                orbit_radius = base_radius + base_thickness // 2 + stem_length + 4
+            else:
+                orbit_radius = stem_length
+            
+            # Always position handle at the top (angle = 0)
+            # Handle moves during drag to follow mouse, but snaps back to top when released
+            rot_x = center_x - rot_handle_size // 2
+            rot_y = center_y - orbit_radius - rot_handle_size // 2
+            
+            self._rotation_handle.move(int(rot_x), int(rot_y))
+            self._rotation_handle.raise_()
+            
+            # Update widget center for angle calculations
+            self._rotation_handle.set_widget_center(QPoint(int(center_x), int(center_y)))
+    
+    def _on_rotation_requested(self, angle: float):
+        """Handle rotation request from the rotation handle"""
+        if self._target is None:
+            return
+        
+        class_name = self._target.__class__.__name__
+        
+        # Only bar and arc widgets support rotation
+        if class_name in ('BarGraphWidget', 'CircularGraphWidget'):
+            # Round to nearest degree for cleaner values
+            rounded_angle = round(angle)
+            self._target.set_rotation(rounded_angle)
+            self.rotationChanged.emit(self._target, rounded_angle)
+            # Don't update handle positions during rotation - they stay at original corners
+            # Only update rotation handle's widget center
+            if self._rotation_handle:
+                target_rect = self._target.geometry()
+                self._rotation_handle.set_widget_center(target_rect.center())
+    
+    def _on_resize_requested(self, handle_type: str, delta_x: int, delta_y: int):
+        """Handle resize request from a drag handle"""
+        if self._target is None:
+            return
+        
+        class_name = self._target.__class__.__name__
+        
+        # For text widgets, use raw pixel deltas (font size is UI interaction)
+        # For bar/arc widgets, convert to device coordinates
+        if class_name in ('DraggableWidget', 'MetricWidget', 'TimeWidget', 'DateWidget', 'FreeTextWidget'):
+            self._resize_text_widget(handle_type, delta_x, delta_y)
+        else:
+            # Calculate device-coordinate deltas (unscale from preview)
+            device_delta_x = int(delta_x / self._preview_scale) if self._preview_scale > 0 else delta_x
+            device_delta_y = int(delta_y / self._preview_scale) if self._preview_scale > 0 else delta_y
+            
+            if class_name == 'BarGraphWidget':
+                self._resize_bar_widget(handle_type, device_delta_x, device_delta_y)
+            elif class_name == 'CircularGraphWidget':
+                self._resize_arc_widget(handle_type, device_delta_x, device_delta_y)
+        
+        # Update handle positions after resize
+        self._update_handle_positions()
+    
+    def _resize_bar_widget(self, handle_type: str, delta_x: int, delta_y: int):
+        """Resize a bar graph widget"""
+        current_width = self._target.get_width()
+        current_height = self._target.get_height()
+        
+        # Calculate new dimensions based on handle
+        new_width = current_width
+        new_height = current_height
+        
+        if 'right' in handle_type:
+            new_width = max(10, current_width + delta_x)
+        elif 'left' in handle_type:
+            new_width = max(10, current_width - delta_x)
+        
+        if 'bottom' in handle_type:
+            new_height = max(5, current_height + delta_y)
+        elif 'top' in handle_type:
+            new_height = max(5, current_height - delta_y)
+        
+        # Apply changes
+        if new_width != current_width:
+            self._target.set_width(new_width)
+            self.sizeChanged.emit(self._target, 'width', new_width)
+        if new_height != current_height:
+            self._target.set_height(new_height)
+            self.sizeChanged.emit(self._target, 'height', new_height)
+    
+    def _resize_arc_widget(self, handle_type: str, delta_x: int, delta_y: int):
+        """Resize a circular arc widget"""
+        current_radius = self._target.get_radius()
+        current_thickness = self._target.get_thickness()
+        
+        # Use average of x and y delta for radius change (uniform scaling)
+        delta = (abs(delta_x) + abs(delta_y)) // 2
+        
+        # Determine direction based on handle type and deltas
+        if handle_type == 'bottom-right':
+            if delta_x > 0 or delta_y > 0:
+                delta = max(delta_x, delta_y)
+            else:
+                delta = min(delta_x, delta_y)
+        elif handle_type == 'top-left':
+            if delta_x < 0 or delta_y < 0:
+                delta = -max(abs(delta_x), abs(delta_y))
+            else:
+                delta = min(abs(delta_x), abs(delta_y))
+        elif handle_type == 'top-right':
+            delta = delta_x if abs(delta_x) > abs(delta_y) else -delta_y
+        elif handle_type == 'bottom-left':
+            delta = -delta_x if abs(delta_x) > abs(delta_y) else delta_y
+        
+        new_radius = max(10, current_radius + delta)
+        
+        if new_radius != current_radius:
+            self._target.set_radius(new_radius)
+            self.sizeChanged.emit(self._target, 'radius', new_radius)
+    
+    def _resize_text_widget(self, handle_type: str, delta_x: int, delta_y: int):
+        """Resize a text widget by changing font size.
+        
+        Uses accumulated deltas for smooth, predictable resizing.
+        Dragging outward increases size, inward decreases.
+        """
+        current_size = self._target.get_font_size()
+        
+        # Use the dominant axis movement for clearer control
+        # Positive = increase font, Negative = decrease font
+        if handle_type == 'bottom-right':
+            # Dragging right or down = increase
+            effective_delta = max(delta_x, delta_y) if (delta_x > 0 or delta_y > 0) else min(delta_x, delta_y)
+        elif handle_type == 'top-left':
+            # Dragging left or up = increase (negate the deltas)
+            effective_delta = max(-delta_x, -delta_y) if (delta_x < 0 or delta_y < 0) else min(-delta_x, -delta_y)
+        elif handle_type == 'top-right':
+            # Dragging right or up = increase
+            effective_delta = max(delta_x, -delta_y) if (delta_x > 0 or delta_y < 0) else min(delta_x, -delta_y)
+        elif handle_type == 'bottom-left':
+            # Dragging left or down = increase
+            effective_delta = max(-delta_x, delta_y) if (delta_x < 0 or delta_y > 0) else min(-delta_x, delta_y)
+        else:
+            effective_delta = 0
+        
+        # Accumulate delta for smooth changes
+        self._accumulated_delta += effective_delta
+        
+        # Every 3 pixels of movement = 1pt font change (responsive but not too jumpy)
+        pixels_per_point = 3.0
+        
+        # Calculate how many font points to change
+        font_delta = int(self._accumulated_delta / pixels_per_point)
+        
+        if font_delta != 0:
+            # Consume the used delta, keep remainder for smooth sub-point tracking
+            self._accumulated_delta -= font_delta * pixels_per_point
+            
+            new_size = max(8, min(96, current_size + font_delta))
+            
+            if new_size != current_size:
+                self._target.set_font_size(new_size)
+                self.sizeChanged.emit(self._target, 'font_size', new_size)
+
+
+class PropertyPopup(QWidget):
+    """Base class for property popup dialogs.
+    
+    A small floating panel that appears when double-clicking a widget,
+    allowing quick editing of common properties.
+    """
+    
+    # Signal emitted when a property changes
+    propertyChanged = Signal(object, str, object)  # target_widget, property_name, new_value
+    
+    # Available metrics for dropdowns
+    METRIC_OPTIONS = [
+        ("CPU Usage", "cpu_usage"),
+        ("CPU Temp", "cpu_temperature"),
+        ("GPU Usage", "gpu_usage"),
+        ("GPU Temp", "gpu_temperature"),
+        ("RAM %", "ram_percent"),
+        ("GPU Mem %", "gpu_mem_percent"),
+    ]
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._target = None
+        self._color_dialog_open = False  # Track if color dialog is open
+        
+        # Use Tool window - stays on top but doesn't auto-close like Popup
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        
+        # Dark theme styling
+        self.setStyleSheet("""
+            PropertyPopup, QWidget#popupContainer {
+                background-color: #2d2d2d;
+                border: 1px solid #555555;
+                border-radius: 6px;
+            }
+            QLabel {
+                color: #ffffff;
+                font-size: 11px;
+            }
+            QLabel#titleLabel {
+                font-weight: bold;
+                font-size: 12px;
+                color: #3498db;
+            }
+            QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {
+                background-color: #3d3d3d;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 3px;
+                padding: 3px 6px;
+                min-width: 60px;
+            }
+            QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover, QLineEdit:hover {
+                border-color: #3498db;
+            }
+            QCheckBox {
+                color: #ffffff;
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                border: 1px solid #555555;
+                background-color: #3d3d3d;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border-color: #3498db;
+            }
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 3px;
+                padding: 4px 8px;
+                min-width: 24px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+                border-color: #3498db;
+            }
+            QPushButton#closeButton {
+                background-color: transparent;
+                border: none;
+                color: #888888;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton#closeButton:hover {
+                color: #ffffff;
+            }
+            QPushButton#colorButton {
+                min-width: 32px;
+                min-height: 20px;
+                border-radius: 3px;
+            }
+        """)
+    
+    def show_for_widget(self, target_widget, global_pos):
+        """Show popup for a specific widget at the given position"""
+        # Reset state
+        self._color_dialog_open = False
+        self._target = target_widget
+        self._populate_fields()
+        
+        # Position near the click but ensure it stays on screen
+        self.adjustSize()
+        screen = self.screen().availableGeometry() if self.screen() else None
+        
+        x = global_pos.x() + 10
+        y = global_pos.y() + 10
+        
+        if screen:
+            if x + self.width() > screen.right():
+                x = global_pos.x() - self.width() - 10
+            if y + self.height() > screen.bottom():
+                y = global_pos.y() - self.height() - 10
+        
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.setFocus()
+    
+    def _populate_fields(self):
+        """Override in subclasses to populate fields from target widget"""
+        pass
+    
+    def _create_title_bar(self, title: str):
+        """Create a title bar with close button"""
+        from PySide6.QtWidgets import QHBoxLayout
+        
+        title_bar = QHBoxLayout()
+        title_bar.setContentsMargins(0, 0, 0, 5)
+        
+        title_label = QLabel(title)
+        title_label.setObjectName("titleLabel")
+        
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeButton")
+        close_btn.setFixedSize(20, 20)
+        close_btn.clicked.connect(self.close)
+        
+        title_bar.addWidget(title_label)
+        title_bar.addStretch()
+        title_bar.addWidget(close_btn)
+        
+        return title_bar
+    
+    def _create_color_button(self, initial_color: QColor, callback):
+        """Create a color picker button"""
+        btn = QPushButton()
+        btn.setObjectName("colorButton")
+        btn.setFixedSize(32, 20)
+        btn._color = initial_color
+        btn.setStyleSheet(f"background-color: {initial_color.name()};")
+        popup = self  # Capture reference to popup
+        
+        def pick_color():
+            from PySide6.QtWidgets import QColorDialog
+            popup._color_dialog_open = True
+            color = QColorDialog.getColor(btn._color, popup, "Select Color")
+            popup._color_dialog_open = False
+            if color.isValid():
+                btn._color = color
+                btn.setStyleSheet(f"background-color: {color.name()};")
+                callback(color)
+            # Re-raise popup after color dialog closes
+            popup.raise_()
+            popup.activateWindow()
+        
+        btn.clicked.connect(pick_color)
+        return btn
+    
+    def _create_spin_box(self, min_val, max_val, initial, callback, suffix=""):
+        """Create a spin box with callback"""
+        from PySide6.QtWidgets import QSpinBox
+        spin = QSpinBox()
+        spin.setRange(min_val, max_val)
+        spin.setValue(initial)
+        if suffix:
+            spin.setSuffix(suffix)
+        spin.valueChanged.connect(callback)
+        return spin
+    
+    def _create_combo_box(self, items, initial_data, callback):
+        """Create a combo box with (display_text, data) items"""
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox()
+        current_idx = 0
+        for i, (text, data) in enumerate(items):
+            combo.addItem(text, data)
+            if data == initial_data:
+                current_idx = i
+        combo.setCurrentIndex(current_idx)
+        combo.currentIndexChanged.connect(lambda idx: callback(combo.itemData(idx)))
+        return combo
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press"""
+        super().mousePressEvent(event)
+
+
+class TextPropertyPopup(PropertyPopup):
+    """Property popup for text widgets (MetricWidget, TimeWidget, DateWidget, FreeTextWidget)"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QCheckBox, QComboBox
+        from PySide6.QtGui import QFontDatabase
+        
+        container = QWidget()
+        container.setObjectName("popupContainer")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
+        
+        # Title bar
+        layout.addLayout(self._create_title_bar("Text Properties"))
+        
+        # Form layout for properties
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
+        
+        # Font family selector
+        self._font_combo = QComboBox()
+        self._font_combo.setMaxVisibleItems(15)
+        # Get available system fonts
+        font_db = QFontDatabase()
+        families = sorted(font_db.families())
+        for family in families:
+            self._font_combo.addItem(family)
+        self._font_combo.currentTextChanged.connect(self._on_font_changed)
+        form.addRow("Font:", self._font_combo)
+        
+        # Font size
+        self._font_spin = QSpinBox()
+        self._font_spin.setRange(8, 96)
+        self._font_spin.setSuffix(" pt")
+        self._font_spin.valueChanged.connect(self._on_font_size_changed)
+        form.addRow("Font Size:", self._font_spin)
+        
+        # Color
+        self._color_btn = self._create_color_button(QColor(255, 255, 255), self._on_color_changed)
+        color_row = QHBoxLayout()
+        color_row.addWidget(self._color_btn)
+        color_row.addStretch()
+        form.addRow("Color:", color_row)
+        
+        # Use theme gradient checkbox
+        self._gradient_check = QCheckBox()
+        self._gradient_check.setToolTip("When checked, uses the global theme gradient instead of the solid color above")
+        self._gradient_check.stateChanged.connect(self._on_gradient_changed)
+        form.addRow("Use Gradient:", self._gradient_check)
+        
+        # Bold checkbox
+        self._bold_check = QCheckBox()
+        self._bold_check.stateChanged.connect(self._on_bold_changed)
+        form.addRow("Bold:", self._bold_check)
+        
+        layout.addLayout(form)
+    
+    def _populate_fields(self):
+        if not self._target:
+            return
+        
+        # Block signals while populating
+        self._font_combo.blockSignals(True)
+        self._font_spin.blockSignals(True)
+        self._bold_check.blockSignals(True)
+        self._gradient_check.blockSignals(True)
+        
+        # Font family
+        if hasattr(self._target, 'get_font_name'):
+            font_name = self._target.get_font_name()
+            idx = self._font_combo.findText(font_name)
+            if idx >= 0:
+                self._font_combo.setCurrentIndex(idx)
+        
+        self._font_spin.setValue(self._target.get_font_size())
+        
+        # Get color from target using getter method
+        if hasattr(self._target, 'get_color'):
+            color = self._target.get_color()
+        elif hasattr(self._target, 'text_style'):
+            color = self._target.text_style.color
+        else:
+            color = QColor(255, 255, 255)
+        self._color_btn._color = color
+        self._color_btn.setStyleSheet(f"background-color: {color.name()};")
+        
+        # Get use_gradient from target
+        if hasattr(self._target, 'get_use_gradient'):
+            self._gradient_check.setChecked(self._target.get_use_gradient())
+        else:
+            self._gradient_check.setChecked(True)  # Default to gradient enabled
+        
+        # Get bold from target using getter method
+        if hasattr(self._target, 'get_bold'):
+            self._bold_check.setChecked(self._target.get_bold())
+        elif hasattr(self._target, 'text_style'):
+            self._bold_check.setChecked(self._target.text_style.bold)
+        else:
+            self._bold_check.setChecked(False)
+        
+        self._font_combo.blockSignals(False)
+        self._font_spin.blockSignals(False)
+        self._bold_check.blockSignals(False)
+        self._gradient_check.blockSignals(False)
+    
+    def _on_font_changed(self, font_name):
+        if self._target and hasattr(self._target, 'set_font_name'):
+            self._target.set_font_name(font_name)
+            self.propertyChanged.emit(self._target, 'font_name', font_name)
+    
+    def _on_font_size_changed(self, value):
+        if self._target:
+            self._target.set_font_size(value)
+            self.propertyChanged.emit(self._target, 'font_size', value)
+    
+    def _on_color_changed(self, color):
+        if self._target:
+            if hasattr(self._target, 'set_color'):
+                self._target.set_color(color)
+            elif hasattr(self._target, 'set_text_color'):
+                self._target.set_text_color(color)
+            self.propertyChanged.emit(self._target, 'color', color)
+    
+    def _on_gradient_changed(self, state):
+        if self._target:
+            use_gradient = bool(state)
+            if hasattr(self._target, 'set_use_gradient'):
+                self._target.set_use_gradient(use_gradient)
+            self.propertyChanged.emit(self._target, 'use_gradient', use_gradient)
+    
+    def _on_bold_changed(self, state):
+        if self._target:
+            bold = bool(state)
+            if hasattr(self._target, 'set_bold'):
+                self._target.set_bold(bold)
+            self.propertyChanged.emit(self._target, 'bold', bold)
+
+
+class MetricPropertyPopup(PropertyPopup):
+    """Property popup for MetricWidget with metric selector"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QCheckBox, QComboBox
+        from PySide6.QtGui import QFontDatabase
+        
+        container = QWidget()
+        container.setObjectName("popupContainer")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
+        
+        # Title bar
+        layout.addLayout(self._create_title_bar("Metric Properties"))
+        
+        # Form layout
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
+        
+        # Metric selector
+        self._metric_combo = QComboBox()
+        for text, data in self.METRIC_OPTIONS:
+            self._metric_combo.addItem(text, data)
+        self._metric_combo.currentIndexChanged.connect(self._on_metric_changed)
+        form.addRow("Metric:", self._metric_combo)
+        
+        # Font family selector
+        self._font_combo = QComboBox()
+        self._font_combo.setMaxVisibleItems(15)
+        font_db = QFontDatabase()
+        families = sorted(font_db.families())
+        for family in families:
+            self._font_combo.addItem(family)
+        self._font_combo.currentTextChanged.connect(self._on_font_changed)
+        form.addRow("Font:", self._font_combo)
+        
+        # Font size
+        self._font_spin = QSpinBox()
+        self._font_spin.setRange(8, 96)
+        self._font_spin.setSuffix(" pt")
+        self._font_spin.valueChanged.connect(self._on_font_size_changed)
+        form.addRow("Font Size:", self._font_spin)
+        
+        # Color
+        self._color_btn = self._create_color_button(QColor(255, 255, 255), self._on_color_changed)
+        color_row = QHBoxLayout()
+        color_row.addWidget(self._color_btn)
+        color_row.addStretch()
+        form.addRow("Color:", color_row)
+        
+        # Use theme gradient checkbox
+        self._gradient_check = QCheckBox()
+        self._gradient_check.setToolTip("When checked, uses the global theme gradient instead of the solid color above")
+        self._gradient_check.stateChanged.connect(self._on_gradient_changed)
+        form.addRow("Use Gradient:", self._gradient_check)
+        
+        # Bold
+        self._bold_check = QCheckBox()
+        self._bold_check.stateChanged.connect(self._on_bold_changed)
+        form.addRow("Bold:", self._bold_check)
+        
+        # Character limit (for name metrics only)
+        self._char_limit_row = QWidget()
+        char_limit_layout = QHBoxLayout(self._char_limit_row)
+        char_limit_layout.setContentsMargins(0, 0, 0, 0)
+        self._char_limit_spin = QSpinBox()
+        self._char_limit_spin.setRange(0, 100)
+        self._char_limit_spin.setSpecialValueText("No limit")
+        self._char_limit_spin.setToolTip("Limit the number of characters displayed (0 = no limit)")
+        self._char_limit_spin.valueChanged.connect(self._on_char_limit_changed)
+        char_limit_layout.addWidget(self._char_limit_spin)
+        char_limit_layout.addStretch()
+        self._char_limit_label = QLabel("Char Limit:")
+        form.addRow(self._char_limit_label, self._char_limit_row)
+        # Initially hide - will show only for name metrics
+        self._char_limit_row.hide()
+        self._char_limit_label.hide()
+        
+        layout.addLayout(form)
+    
+    def _populate_fields(self):
+        if not self._target:
+            return
+        
+        self._font_combo.blockSignals(True)
+        self._font_spin.blockSignals(True)
+        self._metric_combo.blockSignals(True)
+        self._bold_check.blockSignals(True)
+        self._char_limit_spin.blockSignals(True)
+        
+        # Set metric
+        metric_name = getattr(self._target, 'metric_name', 'cpu_usage')
+        for i in range(self._metric_combo.count()):
+            if self._metric_combo.itemData(i) == metric_name:
+                self._metric_combo.setCurrentIndex(i)
+                break
+        
+        # Show/hide char limit based on metric type
+        is_name_metric = metric_name in ['cpu_name', 'gpu_name']
+        self._char_limit_row.setVisible(is_name_metric)
+        self._char_limit_label.setVisible(is_name_metric)
+        
+        # Set char limit value
+        if hasattr(self._target, 'get_char_limit'):
+            self._char_limit_spin.setValue(self._target.get_char_limit())
+        else:
+            self._char_limit_spin.setValue(0)
+        
+        # Font family
+        if hasattr(self._target, 'get_font_name'):
+            font_name = self._target.get_font_name()
+            idx = self._font_combo.findText(font_name)
+            if idx >= 0:
+                self._font_combo.setCurrentIndex(idx)
+        
+        self._font_spin.setValue(self._target.get_font_size())
+        
+        # Color - use getter method
+        if hasattr(self._target, 'get_color'):
+            color = self._target.get_color()
+        elif hasattr(self._target, 'text_style'):
+            color = self._target.text_style.color
+        else:
+            color = QColor(255, 255, 255)
+        self._color_btn._color = color
+        self._color_btn.setStyleSheet(f"background-color: {color.name()};")
+        
+        # Get use_gradient from target
+        self._gradient_check.blockSignals(True)
+        if hasattr(self._target, 'get_use_gradient'):
+            self._gradient_check.setChecked(self._target.get_use_gradient())
+        else:
+            self._gradient_check.setChecked(True)  # Default to gradient enabled
+        self._gradient_check.blockSignals(False)
+        
+        # Bold - use getter method
+        if hasattr(self._target, 'get_bold'):
+            self._bold_check.setChecked(self._target.get_bold())
+        elif hasattr(self._target, 'text_style'):
+            self._bold_check.setChecked(self._target.text_style.bold)
+        
+        self._font_combo.blockSignals(False)
+        self._font_spin.blockSignals(False)
+        self._metric_combo.blockSignals(False)
+        self._bold_check.blockSignals(False)
+        self._char_limit_spin.blockSignals(False)
+    
+    def _on_metric_changed(self, idx):
+        if self._target:
+            metric = self._metric_combo.itemData(idx)
+            # Update the widget's metric_name directly
+            if hasattr(self._target, 'set_metric_name'):
+                self._target.set_metric_name(metric)
+            else:
+                self._target.metric_name = metric
+            self.propertyChanged.emit(self._target, 'metric_name', metric)
+            
+            # Show/hide char limit based on metric type
+            is_name_metric = metric in ['cpu_name', 'gpu_name']
+            self._char_limit_row.setVisible(is_name_metric)
+            self._char_limit_label.setVisible(is_name_metric)
+    
+    def _on_font_changed(self, font_name):
+        if self._target and hasattr(self._target, 'set_font_name'):
+            self._target.set_font_name(font_name)
+            self.propertyChanged.emit(self._target, 'font_name', font_name)
+    
+    def _on_font_size_changed(self, value):
+        if self._target:
+            self._target.set_font_size(value)
+            self.propertyChanged.emit(self._target, 'font_size', value)
+    
+    def _on_color_changed(self, color):
+        if self._target:
+            if hasattr(self._target, 'set_color'):
+                self._target.set_color(color)
+            self.propertyChanged.emit(self._target, 'color', color)
+    
+    def _on_gradient_changed(self, state):
+        if self._target:
+            use_gradient = bool(state)
+            if hasattr(self._target, 'set_use_gradient'):
+                self._target.set_use_gradient(use_gradient)
+            self.propertyChanged.emit(self._target, 'use_gradient', use_gradient)
+    
+    def _on_bold_changed(self, state):
+        if self._target:
+            bold = bool(state)
+            if hasattr(self._target, 'set_bold'):
+                self._target.set_bold(bold)
+            self.propertyChanged.emit(self._target, 'bold', bold)
+    
+    def _on_char_limit_changed(self, value):
+        if self._target:
+            if hasattr(self._target, 'set_char_limit'):
+                self._target.set_char_limit(value)
+            self.propertyChanged.emit(self._target, 'char_limit', value)
+
+
+class BarGraphPropertyPopup(PropertyPopup):
+    """Property popup for BarGraphWidget"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QCheckBox, QComboBox
+        
+        container = QWidget()
+        container.setObjectName("popupContainer")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
+        
+        # Title bar
+        layout.addLayout(self._create_title_bar("Bar Graph"))
+        
+        # Form layout
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
+        
+        # Metric selector
+        self._metric_combo = QComboBox()
+        for text, data in self.METRIC_OPTIONS:
+            self._metric_combo.addItem(text, data)
+        self._metric_combo.currentIndexChanged.connect(self._on_metric_changed)
+        form.addRow("Metric:", self._metric_combo)
+        
+        # Size row: Width and Height
+        size_row = QHBoxLayout()
+        self._width_spin = QSpinBox()
+        self._width_spin.setRange(10, 500)
+        self._width_spin.valueChanged.connect(self._on_width_changed)
+        size_row.addWidget(QLabel("W:"))
+        size_row.addWidget(self._width_spin)
+        
+        self._height_spin = QSpinBox()
+        self._height_spin.setRange(5, 200)
+        self._height_spin.valueChanged.connect(self._on_height_changed)
+        size_row.addWidget(QLabel("H:"))
+        size_row.addWidget(self._height_spin)
+        form.addRow("Size:", size_row)
+        
+        # Fill color (used when gradient is off)
+        self._fill_btn = self._create_color_button(QColor(0, 255, 0), self._on_fill_changed)
+        fill_row = QHBoxLayout()
+        fill_row.addWidget(self._fill_btn)
+        fill_row.addStretch()
+        form.addRow("Fill:", fill_row)
+        
+        # Background color
+        self._bg_btn = self._create_color_button(QColor(50, 50, 50), self._on_bg_changed)
+        bg_row = QHBoxLayout()
+        bg_row.addWidget(self._bg_btn)
+        bg_row.addStretch()
+        form.addRow("Background:", bg_row)
+        
+        # Rotation
+        self._rotation_spin = QSpinBox()
+        self._rotation_spin.setRange(0, 359)
+        self._rotation_spin.setSuffix("°")
+        self._rotation_spin.valueChanged.connect(self._on_rotation_changed)
+        form.addRow("Rotation:", self._rotation_spin)
+        
+        # Gradient checkbox
+        self._gradient_check = QCheckBox()
+        self._gradient_check.stateChanged.connect(self._on_gradient_changed)
+        form.addRow("Gradient:", self._gradient_check)
+        
+        # Gradient colors (shown when gradient is enabled)
+        self._gradient_container = QWidget()
+        gradient_layout = QHBoxLayout(self._gradient_container)
+        gradient_layout.setContentsMargins(0, 0, 0, 0)
+        gradient_layout.setSpacing(4)
+        
+        # Low color (0%)
+        self._gradient_low_btn = self._create_color_button(QColor(0, 255, 0), self._on_gradient_low_changed)
+        gradient_layout.addWidget(QLabel("0%:"))
+        gradient_layout.addWidget(self._gradient_low_btn)
+        
+        # Mid color (50%)
+        self._gradient_mid_btn = self._create_color_button(QColor(255, 255, 0), self._on_gradient_mid_changed)
+        gradient_layout.addWidget(QLabel("50%:"))
+        gradient_layout.addWidget(self._gradient_mid_btn)
+        
+        # High color (100%)
+        self._gradient_high_btn = self._create_color_button(QColor(255, 0, 0), self._on_gradient_high_changed)
+        gradient_layout.addWidget(QLabel("100%:"))
+        gradient_layout.addWidget(self._gradient_high_btn)
+        
+        form.addRow("", self._gradient_container)
+        self._gradient_container.hide()  # Hidden by default
+        
+        layout.addLayout(form)
+    
+    def _populate_fields(self):
+        if not self._target:
+            return
+        
+        # Block all signals
+        for widget in [self._metric_combo, self._width_spin, self._height_spin, 
+                       self._rotation_spin, self._gradient_check]:
+            widget.blockSignals(True)
+        
+        # Metric
+        metric = self._target.get_metric_name()
+        for i in range(self._metric_combo.count()):
+            if self._metric_combo.itemData(i) == metric:
+                self._metric_combo.setCurrentIndex(i)
+                break
+        
+        # Size
+        self._width_spin.setValue(self._target.get_width())
+        self._height_spin.setValue(self._target.get_height())
+        
+        # Colors
+        fill = self._target.get_fill_color()
+        self._fill_btn._color = fill
+        self._fill_btn.setStyleSheet(f"background-color: {fill.name()};")
+        
+        bg = self._target.get_background_color()
+        self._bg_btn._color = bg
+        self._bg_btn.setStyleSheet(f"background-color: {bg.name()};")
+        
+        # Rotation
+        self._rotation_spin.setValue(self._target.get_rotation())
+        
+        # Gradient
+        use_gradient = self._target.get_use_gradient()
+        self._gradient_check.setChecked(use_gradient)
+        
+        # Populate gradient colors from target
+        gradient_colors = self._target.get_gradient_colors()
+        if gradient_colors and len(gradient_colors) >= 3:
+            # Format: [(threshold, (r, g, b, a)), ...]
+            low_color = QColor(*gradient_colors[0][1][:3])
+            mid_color = QColor(*gradient_colors[1][1][:3])
+            high_color = QColor(*gradient_colors[2][1][:3])
+        else:
+            # Default gradient colors
+            low_color = QColor(0, 255, 0)
+            mid_color = QColor(255, 255, 0)
+            high_color = QColor(255, 0, 0)
+        
+        self._gradient_low_btn._color = low_color
+        self._gradient_low_btn.setStyleSheet(f"background-color: {low_color.name()};")
+        self._gradient_mid_btn._color = mid_color
+        self._gradient_mid_btn.setStyleSheet(f"background-color: {mid_color.name()};")
+        self._gradient_high_btn._color = high_color
+        self._gradient_high_btn.setStyleSheet(f"background-color: {high_color.name()};")
+        
+        # Show/hide gradient colors based on checkbox
+        self._gradient_container.setVisible(use_gradient)
+        
+        # Unblock signals
+        for widget in [self._metric_combo, self._width_spin, self._height_spin,
+                       self._rotation_spin, self._gradient_check]:
+            widget.blockSignals(False)
+        
+        # Resize popup to fit content
+        self.adjustSize()
+    
+    def _on_metric_changed(self, idx):
+        if self._target:
+            self._target.set_metric_name(self._metric_combo.itemData(idx))
+            self.propertyChanged.emit(self._target, 'metric_name', self._metric_combo.itemData(idx))
+    
+    def _on_width_changed(self, value):
+        if self._target:
+            self._target.set_width(value)
+            self.propertyChanged.emit(self._target, 'width', value)
+    
+    def _on_height_changed(self, value):
+        if self._target:
+            self._target.set_height(value)
+            self.propertyChanged.emit(self._target, 'height', value)
+    
+    def _on_fill_changed(self, color):
+        if self._target:
+            self._target.set_fill_color(color)
+            self.propertyChanged.emit(self._target, 'fill_color', color)
+    
+    def _on_bg_changed(self, color):
+        if self._target:
+            self._target.set_background_color(color)
+            self.propertyChanged.emit(self._target, 'background_color', color)
+    
+    def _on_rotation_changed(self, value):
+        if self._target:
+            self._target.set_rotation(value)
+            self.propertyChanged.emit(self._target, 'rotation', value)
+    
+    def _on_gradient_changed(self, state):
+        if self._target:
+            use = bool(state)
+            self._target.set_use_gradient(use)
+            self._gradient_container.setVisible(use)
+            self.adjustSize()
+            self.propertyChanged.emit(self._target, 'use_gradient', use)
+    
+    def _update_gradient_colors(self):
+        """Update the target's gradient colors from the buttons"""
+        if not self._target:
+            return
+        low = self._gradient_low_btn._color
+        mid = self._gradient_mid_btn._color
+        high = self._gradient_high_btn._color
+        gradient_colors = [
+            (0, (low.red(), low.green(), low.blue(), 255)),
+            (50, (mid.red(), mid.green(), mid.blue(), 255)),
+            (100, (high.red(), high.green(), high.blue(), 255)),
+        ]
+        self._target.set_gradient_colors(gradient_colors)
+        self.propertyChanged.emit(self._target, 'gradient_colors', gradient_colors)
+    
+    def _on_gradient_low_changed(self, color):
+        self._update_gradient_colors()
+    
+    def _on_gradient_mid_changed(self, color):
+        self._update_gradient_colors()
+    
+    def _on_gradient_high_changed(self, color):
+        self._update_gradient_colors()
+
+
+class ArcGraphPropertyPopup(PropertyPopup):
+    """Property popup for CircularGraphWidget (arc graph)"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QCheckBox, QComboBox
+        
+        container = QWidget()
+        container.setObjectName("popupContainer")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
+        
+        # Title bar
+        layout.addLayout(self._create_title_bar("Arc Graph"))
+        
+        # Form layout
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
+        
+        # Metric selector
+        self._metric_combo = QComboBox()
+        for text, data in self.METRIC_OPTIONS:
+            self._metric_combo.addItem(text, data)
+        self._metric_combo.currentIndexChanged.connect(self._on_metric_changed)
+        form.addRow("Metric:", self._metric_combo)
+        
+        # Radius
+        self._radius_spin = QSpinBox()
+        self._radius_spin.setRange(10, 200)
+        self._radius_spin.valueChanged.connect(self._on_radius_changed)
+        form.addRow("Radius:", self._radius_spin)
+        
+        # Thickness
+        self._thickness_spin = QSpinBox()
+        self._thickness_spin.setRange(2, 50)
+        self._thickness_spin.valueChanged.connect(self._on_thickness_changed)
+        form.addRow("Thickness:", self._thickness_spin)
+        
+        # Fill color
+        self._fill_btn = self._create_color_button(QColor(0, 255, 0), self._on_fill_changed)
+        fill_row = QHBoxLayout()
+        fill_row.addWidget(self._fill_btn)
+        fill_row.addStretch()
+        form.addRow("Fill:", fill_row)
+        
+        # Background color
+        self._bg_btn = self._create_color_button(QColor(50, 50, 50), self._on_bg_changed)
+        bg_row = QHBoxLayout()
+        bg_row.addWidget(self._bg_btn)
+        bg_row.addStretch()
+        form.addRow("Background:", bg_row)
+        
+        # Rotation
+        self._rotation_spin = QSpinBox()
+        self._rotation_spin.setRange(0, 359)
+        self._rotation_spin.setSuffix("°")
+        self._rotation_spin.valueChanged.connect(self._on_rotation_changed)
+        form.addRow("Rotation:", self._rotation_spin)
+        
+        # Start angle
+        self._start_spin = QSpinBox()
+        self._start_spin.setRange(0, 359)
+        self._start_spin.setSuffix("°")
+        self._start_spin.valueChanged.connect(self._on_start_changed)
+        form.addRow("Start Angle:", self._start_spin)
+        
+        # Sweep angle
+        self._sweep_spin = QSpinBox()
+        self._sweep_spin.setRange(1, 360)
+        self._sweep_spin.setSuffix("°")
+        self._sweep_spin.valueChanged.connect(self._on_sweep_changed)
+        form.addRow("Sweep:", self._sweep_spin)
+        
+        # Gradient checkbox
+        self._gradient_check = QCheckBox()
+        self._gradient_check.stateChanged.connect(self._on_gradient_changed)
+        form.addRow("Gradient:", self._gradient_check)
+        
+        layout.addLayout(form)
+        
+        # Gradient colors (initially hidden)
+        self._gradient_widget = QWidget()
+        gradient_layout = QFormLayout(self._gradient_widget)
+        gradient_layout.setSpacing(6)
+        gradient_layout.setContentsMargins(0, 0, 0, 0)
+        gradient_layout.setLabelAlignment(Qt.AlignRight)
+        
+        self._gradient_start_btn = self._create_color_button(QColor(255, 0, 0), self._on_gradient_start_changed)
+        start_row = QHBoxLayout()
+        start_row.addWidget(self._gradient_start_btn)
+        start_row.addStretch()
+        gradient_layout.addRow("Start Color:", start_row)
+        
+        self._gradient_mid_btn = self._create_color_button(QColor(255, 255, 0), self._on_gradient_mid_changed)
+        mid_row = QHBoxLayout()
+        mid_row.addWidget(self._gradient_mid_btn)
+        mid_row.addStretch()
+        gradient_layout.addRow("Mid Color:", mid_row)
+        
+        self._gradient_end_btn = self._create_color_button(QColor(0, 255, 0), self._on_gradient_end_changed)
+        end_row = QHBoxLayout()
+        end_row.addWidget(self._gradient_end_btn)
+        end_row.addStretch()
+        gradient_layout.addRow("End Color:", end_row)
+        
+        self._gradient_widget.hide()
+        layout.addWidget(self._gradient_widget)
+    
+    def _populate_fields(self):
+        if not self._target:
+            return
+        
+        # Block all signals
+        widgets = [self._metric_combo, self._radius_spin, self._thickness_spin,
+                   self._rotation_spin, self._start_spin, self._sweep_spin, self._gradient_check]
+        for widget in widgets:
+            widget.blockSignals(True)
+        
+        # Metric
+        metric = self._target.get_metric_name()
+        for i in range(self._metric_combo.count()):
+            if self._metric_combo.itemData(i) == metric:
+                self._metric_combo.setCurrentIndex(i)
+                break
+        
+        # Dimensions
+        self._radius_spin.setValue(self._target.get_radius())
+        self._thickness_spin.setValue(self._target.get_thickness())
+        
+        # Colors
+        fill = self._target.get_fill_color()
+        self._fill_btn._color = fill
+        self._fill_btn.setStyleSheet(f"background-color: {fill.name()};")
+        
+        bg = self._target.get_background_color()
+        self._bg_btn._color = bg
+        self._bg_btn.setStyleSheet(f"background-color: {bg.name()};")
+        
+        # Angles
+        self._rotation_spin.setValue(self._target.get_rotation())
+        self._start_spin.setValue(self._target.get_start_angle())
+        self._sweep_spin.setValue(self._target.get_sweep_angle())
+        
+        # Gradient
+        use_gradient = self._target.get_use_gradient()
+        self._gradient_check.setChecked(use_gradient)
+        
+        # Gradient colors - convert from [(threshold, (r,g,b,a)), ...] format
+        if hasattr(self._target, 'get_gradient_colors'):
+            colors = self._target.get_gradient_colors()
+            if colors and len(colors) >= 3:
+                # Extract RGB tuples and convert to QColor
+                _, rgba0 = colors[0]
+                _, rgba1 = colors[1]
+                _, rgba2 = colors[2]
+                
+                c0 = QColor(rgba0[0], rgba0[1], rgba0[2], rgba0[3] if len(rgba0) > 3 else 255)
+                c1 = QColor(rgba1[0], rgba1[1], rgba1[2], rgba1[3] if len(rgba1) > 3 else 255)
+                c2 = QColor(rgba2[0], rgba2[1], rgba2[2], rgba2[3] if len(rgba2) > 3 else 255)
+                
+                self._gradient_start_btn._color = c0
+                self._gradient_start_btn.setStyleSheet(f"background-color: {c0.name()};")
+                self._gradient_mid_btn._color = c1
+                self._gradient_mid_btn.setStyleSheet(f"background-color: {c1.name()};")
+                self._gradient_end_btn._color = c2
+                self._gradient_end_btn.setStyleSheet(f"background-color: {c2.name()};")
+        
+        # Show/hide gradient controls
+        self._update_gradient_visibility(use_gradient)
+        
+        # Unblock signals
+        for widget in widgets:
+            widget.blockSignals(False)
+    
+    def _on_metric_changed(self, idx):
+        if self._target:
+            self._target.set_metric_name(self._metric_combo.itemData(idx))
+            self.propertyChanged.emit(self._target, 'metric_name', self._metric_combo.itemData(idx))
+    
+    def _on_radius_changed(self, value):
+        if self._target:
+            self._target.set_radius(value)
+            self.propertyChanged.emit(self._target, 'radius', value)
+    
+    def _on_thickness_changed(self, value):
+        if self._target:
+            self._target.set_thickness(value)
+            self.propertyChanged.emit(self._target, 'thickness', value)
+    
+    def _on_fill_changed(self, color):
+        if self._target:
+            self._target.set_fill_color(color)
+            self.propertyChanged.emit(self._target, 'fill_color', color)
+    
+    def _on_bg_changed(self, color):
+        if self._target:
+            self._target.set_background_color(color)
+            self.propertyChanged.emit(self._target, 'background_color', color)
+    
+    def _on_rotation_changed(self, value):
+        if self._target:
+            self._target.set_rotation(value)
+            self.propertyChanged.emit(self._target, 'rotation', value)
+    
+    def _on_start_changed(self, value):
+        if self._target:
+            self._target.set_start_angle(value)
+            self.propertyChanged.emit(self._target, 'start_angle', value)
+    
+    def _on_sweep_changed(self, value):
+        if self._target:
+            self._target.set_sweep_angle(value)
+            self.propertyChanged.emit(self._target, 'sweep_angle', value)
+    
+    def _on_gradient_changed(self, state):
+        if self._target:
+            use = bool(state)
+            self._target.set_use_gradient(use)
+            self._update_gradient_visibility(use)
+            self.propertyChanged.emit(self._target, 'use_gradient', use)
+    
+    def _update_gradient_visibility(self, visible):
+        """Show or hide gradient color controls"""
+        if visible:
+            self._gradient_widget.show()
+        else:
+            self._gradient_widget.hide()
+        self.adjustSize()
+    
+    def _on_gradient_start_changed(self, color):
+        if self._target and hasattr(self._target, 'set_gradient_colors'):
+            colors = self._target.get_gradient_colors()
+            if colors and len(colors) >= 3:
+                # Format: [(threshold, (r,g,b,a)), ...]
+                new_colors = [
+                    (colors[0][0], (color.red(), color.green(), color.blue(), 255)),
+                    colors[1],
+                    colors[2]
+                ]
+                self._target.set_gradient_colors(new_colors)
+                self.propertyChanged.emit(self._target, 'gradient_colors', new_colors)
+    
+    def _on_gradient_mid_changed(self, color):
+        if self._target and hasattr(self._target, 'set_gradient_colors'):
+            colors = self._target.get_gradient_colors()
+            if colors and len(colors) >= 3:
+                new_colors = [
+                    colors[0],
+                    (colors[1][0], (color.red(), color.green(), color.blue(), 255)),
+                    colors[2]
+                ]
+                self._target.set_gradient_colors(new_colors)
+                self.propertyChanged.emit(self._target, 'gradient_colors', new_colors)
+    
+    def _on_gradient_end_changed(self, color):
+        if self._target and hasattr(self._target, 'set_gradient_colors'):
+            colors = self._target.get_gradient_colors()
+            if colors and len(colors) >= 3:
+                new_colors = [
+                    colors[0],
+                    colors[1],
+                    (colors[2][0], (color.red(), color.green(), color.blue(), 255))
+                ]
+                self._target.set_gradient_colors(new_colors)
+                self.propertyChanged.emit(self._target, 'gradient_colors', new_colors)
+
+
 class GridOverlayWidget(QWidget):
     """Transparent overlay that draws a grid pattern"""
     
@@ -298,6 +1898,7 @@ class TextStyleConfig:
 class DraggableWidget(QLabel):
     """Base class for draggable overlay widgets"""
     positionChanged = Signal(QPoint)
+    doubleClicked = Signal(object, QPoint)  # widget, global_pos - for property popup
     
     # Class-level snap-to-grid settings (shared by all widgets)
     _snap_to_grid_enabled = False
@@ -342,61 +1943,61 @@ class DraggableWidget(QLabel):
         self.setMargin(0)
         self.setIndent(0)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        # Enable focus to receive keyboard events
+        self.setFocusPolicy(Qt.StrongFocus)
         self.dragging = False
         self.drag_start_position = QPoint()
         self.setText(text)
         self.adjustSize()
         self.move(10, 10)
         self.text_style = TextStyleConfig()
-        self._individual_font_size = None  # None means use global style
+        self._individual_font_size = None  # None means use global style (device coordinates)
+        self._preview_scale = 1.0  # Scale factor for preview display
         self.enabled = False
         self.display_text = ""
         self._show_position_hint = False
         self._is_hovered = False
+        self._is_selected = False  # Track selection state
         self.update_display()
 
     def update_display(self):
-        """Update display"""
+        """Update display - uses empty text box with calculated size"""
         if self.enabled:
-            self.setText(self.display_text)
+            # Don't show text - just use empty box with calculated size
+            self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            
+            # Calculate size using PIL to match actual rendered text
+            device_font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
+            pil_width, pil_height = _get_pil_text_size(
+                self.display_text,
+                self.text_style.font_family,
+                device_font_size,
+                self.text_style.bold
+            )
+            # Scale for preview display
+            display_width = int(pil_width * self._preview_scale)
+            display_height = int(pil_height * self._preview_scale)
+            self.setFixedSize(display_width, display_height)
             self.show()
         else:
             self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
             self.hide()
-        self.adjustSize()
 
     def _get_stylesheet(self) -> str:
-        """Get stylesheet with individual or global font size and drag state styling.
+        """Get stylesheet for the selection box overlay.
         
-        Text is rendered transparently (invisible) by default so that the PIL-rendered
-        text with proper effects shows through. Only on hover/drag do we show a subtle
-        text color for positioning feedback.
+        This is just a colored box that shows on hover/drag/select - no text is displayed.
         """
-        font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
-        
-        # Use outline instead of border - outline doesn't affect layout/positioning
-        # Text is transparent normally, slightly visible on hover/drag for feedback
         if self.dragging:
-            outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
-            text_color = "rgba(231, 76, 60, 0.7)"  # Semi-transparent red for positioning
+            return "border: 2px solid #e74c3c; background-color: rgba(231, 76, 60, 0.3);"
+        elif self._is_selected:
+            return "border: 2px solid #2ecc71; background-color: rgba(46, 204, 113, 0.2);"
         elif self._is_hovered:
-            outline_style = "outline: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.15);"
-            text_color = "rgba(52, 152, 219, 0.5)"  # Semi-transparent blue for hover
+            return "border: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.25);"
         else:
-            outline_style = "outline: none; background-color: transparent;"
-            text_color = "transparent"  # Text is invisible - PIL renders the actual text
-        
-        return f"""
-            {outline_style}
-            color: {text_color};
-            padding: 0px;
-            margin: 0px;
-            font-family: {self.text_style.font_family};
-            font-size: {font_size}px;
-            font-weight: {'bold' if self.text_style.bold else 'normal'};
-        """
+            return "border: none; background-color: transparent;"
 
     def set_font_size(self, size: int):
         """Set individual font size for this widget"""
@@ -404,8 +2005,49 @@ class DraggableWidget(QLabel):
         self.update_display()
 
     def get_font_size(self) -> int:
-        """Get current font size (individual or global)"""
+        """Get current font size (individual or global) in device coordinates"""
         return self._individual_font_size if self._individual_font_size else self.text_style.font_size
+
+    def set_font_name(self, font_name: str):
+        """Set font family for this widget"""
+        self.text_style.font_family = font_name
+        self.update_display()
+    
+    def get_font_name(self) -> str:
+        """Get current font family"""
+        return self.text_style.font_family
+
+    def set_color(self, color: QColor):
+        """Set text color for this widget"""
+        self.text_style.color = color
+        self.update_display()
+    
+    def get_color(self) -> QColor:
+        """Get current text color"""
+        return self.text_style.color
+    
+    def set_bold(self, bold: bool):
+        """Set bold state for this widget"""
+        self.text_style.bold = bold
+        self.update_display()
+    
+    def get_bold(self) -> bool:
+        """Get current bold state"""
+        return self.text_style.bold
+
+    def set_use_gradient(self, use_gradient: bool):
+        """Set whether to use the global theme gradient for this widget"""
+        self._use_gradient = use_gradient
+        self.update_display()
+    
+    def get_use_gradient(self) -> bool:
+        """Get whether this widget uses the global theme gradient"""
+        return getattr(self, '_use_gradient', True)  # Default True for backward compat
+
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor and update display"""
+        self._preview_scale = scale
+        self.update_display()
 
     def show_position_hint(self, show: bool):
         """Show/hide position hint when dragging"""
@@ -416,12 +2058,108 @@ class DraggableWidget(QLabel):
         self.update_display()
 
     def mousePressEvent(self, event: QMouseEvent):
-        """Start dragging"""
+        """Start dragging and select widget"""
         if event.button() == Qt.LeftButton:
             self.dragging = True
             self.drag_start_position = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            # Select this widget (grab focus)
+            self.setFocus()
+            self._is_selected = True
             self.update_display()  # Update style to show drag border
+
+    def focusInEvent(self, event):
+        """Widget gained focus - show selection"""
+        self._is_selected = True
+        self.update_display()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        """Widget lost focus - hide selection"""
+        self._is_selected = False
+        self.update_display()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for selected widget"""
+        from PySide6.QtCore import Qt as QtCore
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Delete or Backspace - disable widget
+        if key in (QtCore.Key_Delete, QtCore.Key_Backspace):
+            self.set_enabled(False)
+            # Emit signal so main window can update controls
+            self.positionChanged.emit(self.pos())
+            return
+        
+        # Arrow keys - nudge position
+        # Shift+Arrow = 10px, plain Arrow = 1px
+        nudge = 10 if modifiers & QtCore.ShiftModifier else 1
+        
+        new_pos = self.pos()
+        if key == QtCore.Key_Left:
+            new_pos.setX(new_pos.x() - nudge)
+        elif key == QtCore.Key_Right:
+            new_pos.setX(new_pos.x() + nudge)
+        elif key == QtCore.Key_Up:
+            new_pos.setY(new_pos.y() - nudge)
+        elif key == QtCore.Key_Down:
+            new_pos.setY(new_pos.y() + nudge)
+        else:
+            # Pass unhandled keys to parent
+            super().keyPressEvent(event)
+            return
+        
+        # Clamp to parent bounds
+        if self.parent():
+            parent_rect = self.parent().rect()
+            widget_rect = self.rect()
+            new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - widget_rect.width())))
+            new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
+        
+        self.move(new_pos)
+        self.positionChanged.emit(new_pos)
+        self.setToolTip(f"Position: ({new_pos.x()}, {new_pos.y()})")
+
+    def contextMenuEvent(self, event):
+        """Show right-click context menu"""
+        from PySide6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        # Style the menu for visibility
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QMenu::item {
+                padding: 5px 20px;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+            }
+        """)
+        
+        # Enable/Disable action
+        if self.enabled:
+            disable_action = menu.addAction("Disable")
+            disable_action.triggered.connect(lambda: self.set_enabled(False))
+        else:
+            enable_action = menu.addAction("Enable")
+            enable_action.triggered.connect(lambda: self.set_enabled(True))
+        
+        menu.exec(event.globalPos())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Handle double-click to open property popup"""
+        if event.button() == Qt.LeftButton and self.enabled:
+            self.doubleClicked.emit(self, event.globalPos())
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle dragging movement"""
@@ -699,14 +2437,27 @@ class TimerWidget(DraggableWidget):
         """Update display with current time using the format string"""
         if self.enabled:
             self.display_text = datetime.now().strftime(self.time_format)
-            self.setText(self.display_text)
+            # Don't show text - just use empty box with calculated size
+            self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            
+            # Calculate size using PIL to match actual rendered text
+            device_font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
+            pil_width, pil_height = _get_pil_text_size(
+                self.display_text,
+                self.text_style.font_family,
+                device_font_size,
+                self.text_style.bold
+            )
+            # Scale for preview display
+            display_width = int(pil_width * self._preview_scale)
+            display_height = int(pil_height * self._preview_scale)
+            self.setFixedSize(display_width, display_height)
             self.show()
         else:
             self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
             self.hide()
-        self.adjustSize()
 
 
 class DateWidget(TimerWidget):
@@ -859,13 +2610,26 @@ class FreeTextWidget(DraggableWidget):
         """Update display with custom text"""
         if self.enabled and self.custom_text:
             self.display_text = self.custom_text
-            self.setText(self.display_text)
+            # Don't show text - just use empty box with calculated size
+            self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_stylesheet()} }}")
+            
+            # Calculate size using PIL to match actual rendered text
+            device_font_size = self._individual_font_size if self._individual_font_size else self.text_style.font_size
+            pil_width, pil_height = _get_pil_text_size(
+                self.display_text,
+                self.text_style.font_family,
+                device_font_size,
+                self.text_style.bold
+            )
+            # Scale for preview display
+            display_width = int(pil_width * self._preview_scale)
+            display_height = int(pil_height * self._preview_scale)
+            self.setFixedSize(display_width, display_height)
             self.show()
         else:
             self.setText("")
             self.hide()
-        self.adjustSize()
 
 
 class MetricWidget(DraggableWidget):
@@ -1031,23 +2795,18 @@ class MetricWidget(DraggableWidget):
         self.update_display()
 
     def _get_rich_text_stylesheet(self) -> str:
-        """Get base stylesheet for rich text (font size handled in HTML).
+        """Get stylesheet for the selection box overlay.
         
-        Text is transparent by default so PIL-rendered text with effects shows through.
+        This is just a colored box that shows on hover/drag/select - no text is displayed.
         """
-        # Use outline instead of border - outline doesn't affect layout/positioning
         if self.dragging:
-            outline_style = "outline: 3px solid #e74c3c; background-color: rgba(231, 76, 60, 0.2);"
+            return "border: 2px solid #e74c3c; background-color: rgba(231, 76, 60, 0.3);"
+        elif self._is_selected:
+            return "border: 2px solid #2ecc71; background-color: rgba(46, 204, 113, 0.2);"
         elif self._is_hovered:
-            outline_style = "outline: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.15);"
+            return "border: 2px solid #3498db; background-color: rgba(52, 152, 219, 0.25);"
         else:
-            outline_style = "outline: none; background-color: transparent;"
-        
-        return f"""
-            {outline_style}
-            padding: 0px;
-            margin: 0px;
-        """
+            return "border: none; background-color: transparent;"
 
     def _format_rich_text(self) -> str:
         """Format display text with separate font sizes for label and value using HTML.
@@ -1059,8 +2818,9 @@ class MetricWidget(DraggableWidget):
         value = self.get_value()
         unit = self.get_unit()
         
-        value_font_size = self.get_font_size()
-        label_font_size = self.get_label_font_size()
+        # Get device font sizes and scale for preview display
+        value_font_size = int(self.get_font_size() * self._preview_scale)
+        label_font_size = int(self.get_label_font_size() * self._preview_scale)
         font_family = self.text_style.font_family
         font_weight = 'bold' if self.text_style.bold else 'normal'
         
@@ -1113,17 +2873,65 @@ class MetricWidget(DraggableWidget):
             return f'{label_span}<span style="{label_style}">: </span>{value_span}'
 
     def update_display(self):
-        """Override to update with rich text formatting"""
+        """Override to update with calculated box size based on PIL text metrics"""
         if self.enabled:
-            rich_text = self._format_rich_text()
-            self.setText(rich_text)
+            # Don't show text - just use empty box with calculated size
+            self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_rich_text_stylesheet()} }}")
+            
+            # Get the full display text
+            label = self.custom_label if self.custom_label else ""
+            value = self.get_value()
+            unit = self.get_unit()
+            
+            # Calculate sizes using PIL to match actual rendered text
+            value_font_size = self.get_font_size()
+            label_font_size = self.get_label_font_size()
+            
+            value_text = f"{value}{unit}"
+            value_width, value_height = _get_pil_text_size(
+                value_text,
+                self.text_style.font_family,
+                value_font_size,
+                self.text_style.bold
+            )
+            
+            if label:
+                label_width, label_height = _get_pil_text_size(
+                    label,
+                    self.text_style.font_family,
+                    label_font_size,
+                    self.text_style.bold
+                )
+                
+                if self.label_position in [self.LABEL_ABOVE_LEFT, self.LABEL_ABOVE_CENTER, self.LABEL_ABOVE_RIGHT,
+                                            self.LABEL_BELOW_LEFT, self.LABEL_BELOW_CENTER, self.LABEL_BELOW_RIGHT]:
+                    # Stacked layout - width is max, height is sum
+                    total_width = max(value_width, label_width)
+                    total_height = value_height + label_height
+                else:
+                    # Inline layout - width is sum with separator, height is max
+                    sep_width, _ = _get_pil_text_size(
+                        ": ",
+                        self.text_style.font_family,
+                        label_font_size,
+                        self.text_style.bold
+                    )
+                    total_width = label_width + sep_width + value_width
+                    total_height = max(value_height, label_height)
+            else:
+                total_width = value_width
+                total_height = value_height
+            
+            # Scale for preview display
+            display_width = int(total_width * self._preview_scale)
+            display_height = int(total_height * self._preview_scale)
+            self.setFixedSize(display_width, display_height)
             self.show()
         else:
             self.setText("")
             self.setStyleSheet(f"QLabel {{ {self._get_rich_text_stylesheet()} }}")
             self.hide()
-        self.adjustSize()
 
     def format_label(self):
         return f"{self.custom_label}: " if self.custom_label else ""
@@ -1238,6 +3046,7 @@ class BarGraphWidget(QLabel):
     """Draggable bar graph widget for displaying metrics as bars"""
     
     positionChanged = Signal(QPoint)
+    doubleClicked = Signal(object, QPoint)  # widget, global_pos - for property popup
     
     def __init__(self, parent=None, widget_name="bar1"):
         super().__init__(parent)
@@ -1245,14 +3054,17 @@ class BarGraphWidget(QLabel):
         self.enabled = False
         self._dragging = False
         self._is_hovered = False
+        self._is_selected = False  # Track selection state
+        self._preview_scale = 1.0  # Scale factor for preview display
         
         # Enable mouse tracking and transparent background for drag functionality
         self.setMouseTracking(True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.StrongFocus)  # Enable keyboard focus
         self.setCursor(Qt.OpenHandCursor)
         self._drag_start = QPoint()
         
-        # Bar properties
+        # Bar properties (device coordinates)
         self._metric_name = "cpu_usage"
         self._width = 100
         self._height = 16
@@ -1292,7 +3104,29 @@ class BarGraphWidget(QLabel):
         
         self._set_initial_position()
         self.update_display()
+
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor and update display"""
+        self._preview_scale = scale
+        self.update_display()
     
+    def _get_rotation_padding(self) -> tuple[int, int]:
+        """Calculate the padding offset due to diagonal-based sizing.
+        
+        Returns (padding_x, padding_y) - how much extra space is on each side
+        of the actual bar content within the widget.
+        """
+        import math
+        border_padding = 4
+        scaled_width = int(self._width * self._preview_scale)
+        scaled_height = int(self._height * self._preview_scale)
+        diagonal = int(math.sqrt(scaled_width**2 + scaled_height**2))
+        total_size = diagonal + border_padding * 2
+        # Padding on each side is half the difference between total and scaled size
+        padding_x = (total_size - scaled_width) // 2
+        padding_y = (total_size - scaled_height) // 2
+        return (padding_x, padding_y)
+
     def _set_initial_position(self):
         """Set initial position based on widget name.
         
@@ -1332,7 +3166,11 @@ class BarGraphWidget(QLabel):
         self.update_display()
     
     def update_display(self):
-        """Update the visual display of the bar"""
+        """Update the visual display of the bar.
+        
+        Uses a fixed-size widget based on the bar's diagonal, so rotation
+        doesn't change the widget's geometry - content rotates within.
+        """
         if not self.enabled:
             self.hide()
             return
@@ -1342,55 +3180,59 @@ class BarGraphWidget(QLabel):
         # Add padding for the selection border
         border_padding = 4
         
-        # Calculate rotated bounding box size
-        angle_rad = math.radians(self._rotation)
-        cos_a = abs(math.cos(angle_rad))
-        sin_a = abs(math.sin(angle_rad))
+        # Apply preview scale to dimensions for display
+        scaled_width = int(self._width * self._preview_scale)
+        scaled_height = int(self._height * self._preview_scale)
         
-        # Calculate bounding box dimensions after rotation
-        rotated_width = int(self._width * cos_a + self._height * sin_a)
-        rotated_height = int(self._width * sin_a + self._height * cos_a)
+        # Use fixed size based on diagonal so rotation fits within
+        # This prevents the widget from growing when rotated
+        diagonal = int(math.sqrt(scaled_width**2 + scaled_height**2))
+        total_size = diagonal + border_padding * 2
         
-        total_width = rotated_width + border_padding * 2
-        total_height = rotated_height + border_padding * 2
-        
-        # Create pixmap with padding for border
-        pixmap = QPixmap(total_width, total_height)
+        # Create square pixmap that can contain any rotation
+        pixmap = QPixmap(total_size, total_size)
         pixmap.fill(Qt.transparent)
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         
-        # Draw selection border if dragging or hovered
-        if self._dragging:
-            # Red border when dragging
-            painter.setBrush(QColor(231, 76, 60, 50))  # Semi-transparent red background
-            pen = QPen(QColor(231, 76, 60, 255))
-            pen.setWidth(3)
-            painter.setPen(pen)
-            painter.drawRect(1, 1, total_width - 2, total_height - 2)
-        elif self._is_hovered:
-            # Blue border on hover
-            painter.setBrush(QColor(52, 152, 219, 40))  # Semi-transparent blue background
-            pen = QPen(QColor(52, 152, 219, 255))
-            pen.setWidth(2)
-            painter.setPen(pen)
-            painter.drawRect(1, 1, total_width - 2, total_height - 2)
-        
         # Calculate fill amount
         normalized = (self._current_value - self._min_value) / max(1, self._max_value - self._min_value)
         normalized = max(0.0, min(1.0, normalized))
         
-        # Apply rotation transformation
+        # Scale corner radius
+        scaled_corner_radius = int(self._corner_radius * self._preview_scale)
+        
+        # Apply rotation transformation - selection border rotates WITH the bar
         painter.save()
-        # Move to center of widget
-        painter.translate(total_width / 2, total_height / 2)
+        # Move to center of square widget
+        painter.translate(total_size / 2, total_size / 2)
         # Rotate around center
         painter.rotate(self._rotation)
-        # Move back so bar is centered
-        painter.translate(-self._width / 2, -self._height / 2)
+        # Move back so bar is centered (use scaled dimensions)
+        painter.translate(-scaled_width / 2, -scaled_height / 2)
         
-        # Now draw as if at origin (0, 0)
+        # Draw selection border (now rotates with the bar)
+        if self._dragging:
+            painter.setBrush(QColor(231, 76, 60, 50))
+            pen = QPen(QColor(231, 76, 60, 255))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        elif self._is_selected:
+            painter.setBrush(QColor(46, 204, 113, 40))
+            pen = QPen(QColor(46, 204, 113, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        elif self._is_hovered:
+            painter.setBrush(QColor(52, 152, 219, 40))
+            pen = QPen(QColor(52, 152, 219, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        
+        # Now draw as if at origin (0, 0) using scaled dimensions
         bar_x = 0
         bar_y = 0
         
@@ -1403,11 +3245,11 @@ class BarGraphWidget(QLabel):
         else:
             painter.setPen(Qt.NoPen)
         
-        if self._corner_radius > 0:
-            painter.drawRoundedRect(bar_x, bar_y, self._width, self._height, 
-                                   self._corner_radius, self._corner_radius)
+        if scaled_corner_radius > 0:
+            painter.drawRoundedRect(bar_x, bar_y, scaled_width, scaled_height, 
+                                   scaled_corner_radius, scaled_corner_radius)
         else:
-            painter.drawRect(bar_x, bar_y, self._width, self._height)
+            painter.drawRect(bar_x, bar_y, scaled_width, scaled_height)
         
         # Determine fill color (use gradient if enabled)
         if self._use_gradient and self._gradient_colors:
@@ -1420,30 +3262,30 @@ class BarGraphWidget(QLabel):
         painter.setPen(Qt.NoPen)
         
         if self._orientation == "horizontal":
-            fill_width = int(self._width * normalized)
+            fill_width = int(scaled_width * normalized)
             if fill_width > 0:
-                if self._corner_radius > 0:
-                    painter.drawRoundedRect(bar_x, bar_y, fill_width, self._height,
-                                           min(self._corner_radius, fill_width // 2), 
-                                           self._corner_radius)
+                if scaled_corner_radius > 0:
+                    painter.drawRoundedRect(bar_x, bar_y, fill_width, scaled_height,
+                                           min(scaled_corner_radius, fill_width // 2), 
+                                           scaled_corner_radius)
                 else:
-                    painter.drawRect(bar_x, bar_y, fill_width, self._height)
+                    painter.drawRect(bar_x, bar_y, fill_width, scaled_height)
         else:  # vertical
-            fill_height = int(self._height * normalized)
+            fill_height = int(scaled_height * normalized)
             if fill_height > 0:
-                fill_y = bar_y + self._height - fill_height
-                if self._corner_radius > 0:
-                    painter.drawRoundedRect(bar_x, fill_y, self._width, fill_height,
-                                           self._corner_radius,
-                                           min(self._corner_radius, fill_height // 2))
+                fill_y = bar_y + scaled_height - fill_height
+                if scaled_corner_radius > 0:
+                    painter.drawRoundedRect(bar_x, fill_y, scaled_width, fill_height,
+                                           scaled_corner_radius,
+                                           min(scaled_corner_radius, fill_height // 2))
                 else:
-                    painter.drawRect(bar_x, fill_y, self._width, fill_height)
+                    painter.drawRect(bar_x, fill_y, scaled_width, fill_height)
         
         painter.restore()
         painter.end()
         
         self.setPixmap(pixmap)
-        self.setFixedSize(total_width, total_height)
+        self.setFixedSize(total_size, total_size)
         self.show()
     
     def enterEvent(self, event):
@@ -1464,6 +3306,9 @@ class BarGraphWidget(QLabel):
             self._dragging = True
             self._drag_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            # Select this widget (grab focus)
+            self.setFocus()
+            self._is_selected = True
             self.update_display()
             event.accept()
         else:
@@ -1472,12 +3317,14 @@ class BarGraphWidget(QLabel):
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._dragging and self.enabled:
             new_pos = self.pos() + event.pos() - self._drag_start
-            # Clamp to parent bounds
+            # Clamp to parent bounds, accounting for rotation padding
             if self.parent():
                 parent_rect = self.parent().rect()
                 widget_rect = self.rect()
-                new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - widget_rect.width())))
-                new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
+                # Get padding offset to allow content to reach edges
+                pad_x, pad_y = self._get_rotation_padding()
+                new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+                new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
             self.move(new_pos)
             self.positionChanged.emit(new_pos)
             event.accept()
@@ -1492,7 +3339,97 @@ class BarGraphWidget(QLabel):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
-    
+
+    def focusInEvent(self, event):
+        """Widget gained focus - show selection"""
+        self._is_selected = True
+        self.update_display()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        """Widget lost focus - hide selection"""
+        self._is_selected = False
+        self.update_display()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for selected widget"""
+        from PySide6.QtCore import Qt as QtCore
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Delete or Backspace - disable widget
+        if key in (QtCore.Key_Delete, QtCore.Key_Backspace):
+            self.set_enabled(False)
+            self.positionChanged.emit(self.pos())
+            return
+        
+        # Arrow keys - nudge position
+        nudge = 10 if modifiers & QtCore.ShiftModifier else 1
+        
+        new_pos = self.pos()
+        if key == QtCore.Key_Left:
+            new_pos.setX(new_pos.x() - nudge)
+        elif key == QtCore.Key_Right:
+            new_pos.setX(new_pos.x() + nudge)
+        elif key == QtCore.Key_Up:
+            new_pos.setY(new_pos.y() - nudge)
+        elif key == QtCore.Key_Down:
+            new_pos.setY(new_pos.y() + nudge)
+        else:
+            super().keyPressEvent(event)
+            return
+        
+        # Clamp to parent bounds, accounting for rotation padding
+        if self.parent():
+            parent_rect = self.parent().rect()
+            widget_rect = self.rect()
+            # Get padding offset to allow content to reach edges
+            pad_x, pad_y = self._get_rotation_padding()
+            new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+            new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
+        
+        self.move(new_pos)
+        self.positionChanged.emit(new_pos)
+
+    def contextMenuEvent(self, event):
+        """Show right-click context menu"""
+        from PySide6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        # Style the menu for visibility
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QMenu::item {
+                padding: 5px 20px;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+            }
+        """)
+        
+        if self.enabled:
+            disable_action = menu.addAction("Disable")
+            disable_action.triggered.connect(lambda: self.set_enabled(False))
+        else:
+            enable_action = menu.addAction("Enable")
+            enable_action.triggered.connect(lambda: self.set_enabled(True))
+        
+        menu.exec(event.globalPos())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Handle double-click to open property popup"""
+        if event.button() == Qt.LeftButton and self.enabled:
+            self.doubleClicked.emit(self, event.globalPos())
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
     # Getters and setters for all properties
     def get_metric_name(self) -> str:
         return self._metric_name
@@ -1613,6 +3550,7 @@ class CircularGraphWidget(QLabel):
     """Draggable circular/arc graph widget for displaying metrics"""
     
     positionChanged = Signal(QPoint)
+    doubleClicked = Signal(object, QPoint)  # widget, global_pos - for property popup
     
     def __init__(self, parent=None, widget_name="arc1"):
         super().__init__(parent)
@@ -1620,14 +3558,17 @@ class CircularGraphWidget(QLabel):
         self.enabled = False
         self._dragging = False
         self._is_hovered = False
+        self._is_selected = False  # Track selection state
+        self._preview_scale = 1.0  # Scale factor for preview display
         
         # Enable mouse tracking and transparent background for drag functionality
         self.setMouseTracking(True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.StrongFocus)  # Enable keyboard focus
         self.setCursor(Qt.OpenHandCursor)
         self._drag_start = QPoint()
         
-        # Arc properties
+        # Arc properties (device coordinates)
         self._metric_name = "cpu_usage"
         self._radius = 40
         self._thickness = 8
@@ -1667,7 +3608,28 @@ class CircularGraphWidget(QLabel):
         
         self._set_initial_position()
         self.update_display()
+
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor and update display"""
+        self._preview_scale = scale
+        self.update_display()
     
+    def _get_rotation_padding(self) -> tuple[int, int]:
+        """Calculate the padding offset due to widget sizing.
+        
+        Returns (padding_x, padding_y) - how much extra space is on each side
+        of the actual arc content within the widget.
+        """
+        border_padding = 4
+        scaled_radius = int(self._radius * self._preview_scale)
+        scaled_thickness = int(self._thickness * self._preview_scale)
+        diameter = scaled_radius * 2
+        arc_bounds_size = diameter + scaled_thickness
+        total_size = arc_bounds_size + border_padding * 2
+        # Padding on each side is half the difference between total and bounds size
+        padding = (total_size - arc_bounds_size) // 2
+        return (padding, padding)
+
     def _set_initial_position(self):
         """Set initial position based on widget name."""
         border_padding = 4
@@ -1701,7 +3663,10 @@ class CircularGraphWidget(QLabel):
         self.update_display()
     
     def update_display(self):
-        """Update the visual display of the arc"""
+        """Update the visual display of the arc.
+        
+        Uses a fixed-size widget so rotation doesn't change geometry.
+        """
         if not self.enabled:
             self.hide()
             return
@@ -1710,18 +3675,15 @@ class CircularGraphWidget(QLabel):
         
         # Add padding for the selection border
         border_padding = 4
-        diameter = self._radius * 2
-        base_size = diameter + self._thickness + border_padding * 2
         
-        # Calculate rotated bounding box size if rotation is applied
-        if self._rotation != 0:
-            angle_rad = math.radians(self._rotation)
-            cos_a = abs(math.cos(angle_rad))
-            sin_a = abs(math.sin(angle_rad))
-            rotated_size = int(base_size * cos_a + base_size * sin_a)
-            total_size = max(base_size, rotated_size)
-        else:
-            total_size = base_size
+        # Apply preview scale to dimensions for display
+        scaled_radius = int(self._radius * self._preview_scale)
+        scaled_thickness = int(self._thickness * self._preview_scale)
+        
+        diameter = scaled_radius * 2
+        # Fixed size - arc is already circular so no diagonal needed
+        # Just use the full diameter + thickness + padding
+        total_size = diameter + scaled_thickness + border_padding * 2
         
         # Create pixmap with padding for border
         pixmap = QPixmap(total_size, total_size)
@@ -1730,43 +3692,57 @@ class CircularGraphWidget(QLabel):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         
-        # Draw selection border if dragging or hovered
+        # Arc bounds for selection border
+        arc_bounds_size = diameter + scaled_thickness
+        
+        # Apply rotation around center - selection border rotates WITH the arc
+        painter.save()
+        painter.translate(total_size / 2, total_size / 2)
+        painter.rotate(self._rotation)
+        painter.translate(-total_size / 2, -total_size / 2)
+        
+        # Draw selection border (now rotates with the arc)
+        arc_bounds_left = (total_size - arc_bounds_size) // 2
+        arc_bounds_top = (total_size - arc_bounds_size) // 2
+        
         if self._dragging:
             painter.setBrush(QColor(231, 76, 60, 50))
             pen = QPen(QColor(231, 76, 60, 255))
             pen.setWidth(3)
             painter.setPen(pen)
-            painter.drawRect(1, 1, total_size - 2, total_size - 2)
+            painter.drawRect(arc_bounds_left - 2, arc_bounds_top - 2, 
+                           arc_bounds_size + 4, arc_bounds_size + 4)
+        elif self._is_selected:
+            painter.setBrush(QColor(46, 204, 113, 40))
+            pen = QPen(QColor(46, 204, 113, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(arc_bounds_left - 2, arc_bounds_top - 2,
+                           arc_bounds_size + 4, arc_bounds_size + 4)
         elif self._is_hovered:
             painter.setBrush(QColor(52, 152, 219, 40))
             pen = QPen(QColor(52, 152, 219, 255))
             pen.setWidth(2)
             painter.setPen(pen)
-            painter.drawRect(1, 1, total_size - 2, total_size - 2)
-        
-        # Apply rotation if needed
-        if self._rotation != 0:
-            painter.save()
-            painter.translate(total_size / 2, total_size / 2)
-            painter.rotate(self._rotation)
-            painter.translate(-total_size / 2, -total_size / 2)
+            painter.drawRect(arc_bounds_left - 2, arc_bounds_top - 2,
+                           arc_bounds_size + 4, arc_bounds_size + 4)
         
         # Calculate center of arc within pixmap
         center_x = total_size // 2
         center_y = total_size // 2
         
-        # Calculate bounding rect for arc
+        # Calculate bounding rect for arc (using scaled values)
         arc_rect_size = diameter
-        arc_left = center_x - self._radius
-        arc_top = center_y - self._radius
+        arc_left = center_x - scaled_radius
+        arc_top = center_y - scaled_radius
         
         # Calculate fill amount
         normalized = (self._current_value - self._min_value) / max(1, self._max_value - self._min_value)
         normalized = max(0.0, min(1.0, normalized))
         
-        # Draw background arc
+        # Draw background arc (using scaled thickness)
         pen = QPen(self._background_color)
-        pen.setWidth(self._thickness)
+        pen.setWidth(scaled_thickness)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -1785,7 +3761,7 @@ class CircularGraphWidget(QLabel):
                 fill_color = self._fill_color
             
             pen = QPen(fill_color)
-            pen.setWidth(self._thickness)
+            pen.setWidth(scaled_thickness)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             
@@ -1793,31 +3769,30 @@ class CircularGraphWidget(QLabel):
             filled_sweep_qt = int(filled_sweep * 16)
             painter.drawArc(arc_left, arc_top, arc_rect_size, arc_rect_size, start_angle_qt, filled_sweep_qt)
         
+        # Scale border width for display
+        scaled_border_width = max(1, int(self._border_width * self._preview_scale))
+        
         # Draw border if enabled
         if self._show_border and self._border_width > 0:
             pen = QPen(self._border_color)
-            pen.setWidth(self._border_width)
+            pen.setWidth(scaled_border_width)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             
-            # Draw outer border arc
-            outer_offset = self._thickness // 2 + self._border_width // 2
-            outer_rect_size = diameter + self._thickness
-            outer_left = center_x - self._radius - self._thickness // 2
-            outer_top = center_y - self._radius - self._thickness // 2
+            # Draw outer border arc (using scaled dimensions)
+            outer_rect_size = diameter + scaled_thickness
+            outer_left = center_x - scaled_radius - scaled_thickness // 2
+            outer_top = center_y - scaled_radius - scaled_thickness // 2
             painter.drawArc(outer_left, outer_top, outer_rect_size, outer_rect_size, start_angle_qt, sweep_angle_qt)
             
             # Draw inner border arc
-            inner_rect_size = diameter - self._thickness
-            inner_left = center_x - self._radius + self._thickness // 2
-            inner_top = center_y - self._radius + self._thickness // 2
+            inner_rect_size = diameter - scaled_thickness
+            inner_left = center_x - scaled_radius + scaled_thickness // 2
+            inner_top = center_y - scaled_radius + scaled_thickness // 2
             painter.drawArc(inner_left, inner_top, inner_rect_size, inner_rect_size, start_angle_qt, sweep_angle_qt)
         
-        # Restore painter state if rotation was applied
-        if self._rotation != 0:
-            painter.restore()
-        
+        painter.restore()
         painter.end()
         
         self.setPixmap(pixmap)
@@ -1839,6 +3814,9 @@ class CircularGraphWidget(QLabel):
             self._dragging = True
             self._drag_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            # Select this widget (grab focus)
+            self.setFocus()
+            self._is_selected = True
             self.update_display()
             event.accept()
         else:
@@ -1850,8 +3828,10 @@ class CircularGraphWidget(QLabel):
             if self.parent():
                 parent_rect = self.parent().rect()
                 widget_rect = self.rect()
-                new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - widget_rect.width())))
-                new_pos.setY(max(0, min(new_pos.y(), parent_rect.height() - widget_rect.height())))
+                # Get padding offset to allow content to reach edges
+                pad_x, pad_y = self._get_rotation_padding()
+                new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+                new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
             self.move(new_pos)
             self.positionChanged.emit(new_pos)
             event.accept()
@@ -1866,6 +3846,96 @@ class CircularGraphWidget(QLabel):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def focusInEvent(self, event):
+        """Widget gained focus - show selection"""
+        self._is_selected = True
+        self.update_display()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        """Widget lost focus - hide selection"""
+        self._is_selected = False
+        self.update_display()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for selected widget"""
+        from PySide6.QtCore import Qt as QtCore
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Delete or Backspace - disable widget
+        if key in (QtCore.Key_Delete, QtCore.Key_Backspace):
+            self.set_enabled(False)
+            self.positionChanged.emit(self.pos())
+            return
+        
+        # Arrow keys - nudge position
+        nudge = 10 if modifiers & QtCore.ShiftModifier else 1
+        
+        new_pos = self.pos()
+        if key == QtCore.Key_Left:
+            new_pos.setX(new_pos.x() - nudge)
+        elif key == QtCore.Key_Right:
+            new_pos.setX(new_pos.x() + nudge)
+        elif key == QtCore.Key_Up:
+            new_pos.setY(new_pos.y() - nudge)
+        elif key == QtCore.Key_Down:
+            new_pos.setY(new_pos.y() + nudge)
+        else:
+            super().keyPressEvent(event)
+            return
+        
+        # Clamp to parent bounds, accounting for padding
+        if self.parent():
+            parent_rect = self.parent().rect()
+            widget_rect = self.rect()
+            # Get padding offset to allow content to reach edges
+            pad_x, pad_y = self._get_rotation_padding()
+            new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+            new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
+        
+        self.move(new_pos)
+        self.positionChanged.emit(new_pos)
+
+    def contextMenuEvent(self, event):
+        """Show right-click context menu"""
+        from PySide6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        # Style the menu for visibility
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QMenu::item {
+                padding: 5px 20px;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+            }
+        """)
+        
+        if self.enabled:
+            disable_action = menu.addAction("Disable")
+            disable_action.triggered.connect(lambda: self.set_enabled(False))
+        else:
+            enable_action = menu.addAction("Enable")
+            enable_action.triggered.connect(lambda: self.set_enabled(True))
+        
+        menu.exec(event.globalPos())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Handle double-click to open property popup"""
+        if event.button() == Qt.LeftButton and self.enabled:
+            self.doubleClicked.emit(self, event.globalPos())
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
     
     # Getters and setters
     def get_metric_name(self) -> str:
@@ -1978,12 +4048,15 @@ class CircularGraphWidget(QLabel):
         self.update_display()
     
     def get_position(self) -> tuple:
-        """Get center position adjusted for border padding, radius, and rotation"""
+        """Get center position adjusted for border padding, radius, rotation, and preview scale"""
         import math
         
         border_padding = 4
-        diameter = self._radius * 2
-        base_size = diameter + self._thickness + border_padding * 2
+        # Use scaled dimensions since pos() is in preview coordinates
+        scaled_radius = int(self._radius * self._preview_scale)
+        scaled_thickness = int(self._thickness * self._preview_scale)
+        diameter = scaled_radius * 2
+        base_size = diameter + scaled_thickness + border_padding * 2
         
         # Calculate total size accounting for rotation
         if self._rotation != 0:
@@ -1996,7 +4069,7 @@ class CircularGraphWidget(QLabel):
             total_size = base_size
         
         pos = self.pos()
-        # Return the center of the widget
+        # Return the center of the widget (in preview coordinates)
         center_x = pos.x() + total_size // 2
         center_y = pos.y() + total_size // 2
         return (center_x, center_y)

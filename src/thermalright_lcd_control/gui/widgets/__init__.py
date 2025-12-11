@@ -7,5 +7,7 @@ GUI widgets package
 
 from .thumbnail_widget import ThumbnailWidget
 from .device_selector import DeviceSelector
+from .widget_palette import WidgetPalette, PaletteItem
+from .drop_preview import DropPreviewWidget
 
-__all__ = ['ThumbnailWidget', 'DeviceSelector']
+__all__ = ['ThumbnailWidget', 'DeviceSelector', 'WidgetPalette', 'PaletteItem', 'DropPreviewWidget']

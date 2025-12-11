@@ -89,13 +89,18 @@ class TextRenderer:
         # Store display config for text effects
         self.display_config = display_config
 
-    def _get_font(self, font_size: int) -> ImageFont.ImageFont:
-        return self.font_manager.get_font(font_size)
+    def _get_font(self, font_size: int, font_name: str = None, bold: bool = False) -> ImageFont.ImageFont:
+        """Get a font with optional family name and bold style"""
+        return self.font_manager.get_font(font_size, font_name, bold)
 
     def _draw_text_with_effects(self, draw: ImageDraw.Draw, image: Image.Image, 
                                  position: tuple, text: str, font: ImageFont.ImageFont, 
-                                 fill: tuple):
-        """Draw text with shadow, outline, and gradient effects if enabled"""
+                                 fill: tuple, use_gradient: bool = True):
+        """Draw text with shadow, outline, and gradient effects if enabled
+        
+        Args:
+            use_gradient: If False, skip global gradient and use solid fill color instead
+        """
         x, y = position
         
         # Draw shadow first (behind everything)
@@ -137,8 +142,8 @@ class TextRenderer:
                     if ox != 0 or oy != 0:
                         draw.text((x + ox, y + oy), text, fill=outline_color, font=font)
         
-        # Draw main text (with gradient if enabled)
-        if self.display_config.gradient_enabled:
+        # Draw main text (with gradient if enabled and widget allows it)
+        if self.display_config.gradient_enabled and use_gradient:
             # Create gradient text
             bbox = draw.textbbox(position, text, font=font)
             text_width = bbox[2] - bbox[0]
@@ -297,9 +302,12 @@ class TextRenderer:
                 except (ValueError, TypeError):
                     pass
 
-            # Get fonts - separate for value and label
-            value_font = self._get_font(config.font_size)
-            label_font = self._get_font(config.get_label_font_size())
+            # Get fonts - separate for value and label, using per-config font settings
+            font_name = getattr(config, 'font_name', None)
+            bold = getattr(config, 'bold', False)
+            use_gradient = getattr(config, 'use_gradient', True)
+            value_font = self._get_font(config.font_size, font_name, bold)
+            label_font = self._get_font(config.get_label_font_size(), font_name, bold)
             
             # Format the value part - use 2 decimal places for GHz
             if is_ghz_format and isinstance(value, float):
@@ -328,7 +336,7 @@ class TextRenderer:
             # Render based on label position
             if label_pos == LabelPosition.NONE or not label_text:
                 # Just render value with unit
-                self._draw_text_with_effects(draw, image, config.position, value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, config.position, value_text, value_font, config.color, use_gradient)
             
             # === ABOVE positions (label on top, value below) ===
             elif label_pos in (LabelPosition.ABOVE, LabelPosition.ABOVE_CENTER):
@@ -336,23 +344,23 @@ class TextRenderer:
                 max_width = max(label_width, value_width)
                 label_x = base_x + (max_width - label_width) // 2 + offset_x
                 value_x = base_x + (max_width - value_width) // 2
-                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.ABOVE_LEFT:
                 # Left alignment
                 label_x = base_x + offset_x
                 value_x = base_x
-                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.ABOVE_RIGHT:
                 # Right alignment
                 max_width = max(label_width, value_width)
                 label_x = base_x + max_width - label_width + offset_x
                 value_x = base_x + max_width - value_width
-                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + offset_y), label_text, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (value_x, base_y + label_height + 2), value_text, value_font, config.color, use_gradient)
             
             # === BELOW positions (value on top, label below) ===
             elif label_pos in (LabelPosition.BELOW, LabelPosition.BELOW_CENTER):
@@ -360,23 +368,23 @@ class TextRenderer:
                 max_width = max(label_width, value_width)
                 value_x = base_x + (max_width - value_width) // 2
                 label_x = base_x + (max_width - label_width) // 2 + offset_x
-                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.BELOW_LEFT:
                 # Left alignment
                 value_x = base_x
                 label_x = base_x + offset_x
-                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.BELOW_RIGHT:
                 # Right alignment
                 max_width = max(label_width, value_width)
                 value_x = base_x + max_width - value_width
                 label_x = base_x + max_width - label_width + offset_x
-                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color)
+                self._draw_text_with_effects(draw, image, (value_x, base_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (label_x, base_y + value_height + 2 + offset_y), label_text, label_font, config.color, use_gradient)
             
             # === LEFT positions (label on left, value on right) ===
             elif label_pos in (LabelPosition.LEFT, LabelPosition.LEFT_CENTER):
@@ -387,16 +395,16 @@ class TextRenderer:
                 label_with_colon = f"{label_text}: "
                 label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
                 label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
-                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.LEFT_TOP:
                 # Top aligned
                 label_with_colon = f"{label_text}: "
                 label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
                 label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
-                self._draw_text_with_effects(draw, image, (base_x + offset_x, base_y + offset_y), label_with_colon, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, base_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, base_y + offset_y), label_with_colon, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, base_y), value_text, value_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.LEFT_BOTTOM:
                 # Bottom aligned
@@ -406,8 +414,8 @@ class TextRenderer:
                 label_with_colon = f"{label_text}: "
                 label_colon_bbox = draw.textbbox((0, 0), label_with_colon, font=label_font)
                 label_colon_width = label_colon_bbox[2] - label_colon_bbox[0]
-                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x + offset_x, label_y), label_with_colon, label_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + label_colon_width + offset_x, value_y), value_text, value_font, config.color, use_gradient)
             
             # === RIGHT positions (value on left, label on right) ===
             elif label_pos in (LabelPosition.RIGHT, LabelPosition.RIGHT_CENTER):
@@ -415,21 +423,21 @@ class TextRenderer:
                 max_height = max(label_height, value_height)
                 value_y = base_y + (max_height - value_height) // 2
                 label_y = base_y + (max_height - label_height) // 2 + offset_y
-                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.RIGHT_TOP:
                 # Top aligned
-                self._draw_text_with_effects(draw, image, (base_x, base_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, base_y + offset_y), f" :{label_text}", label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x, base_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, base_y + offset_y), f" :{label_text}", label_font, config.color, use_gradient)
             
             elif label_pos == LabelPosition.RIGHT_BOTTOM:
                 # Bottom aligned
                 max_height = max(label_height, value_height)
                 value_y = base_y + max_height - value_height
                 label_y = base_y + max_height - label_height + offset_y
-                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color)
-                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color)
+                self._draw_text_with_effects(draw, image, (base_x, value_y), value_text, value_font, config.color, use_gradient)
+                self._draw_text_with_effects(draw, image, (base_x + value_width + offset_x, label_y), f" :{label_text}", label_font, config.color, use_gradient)
             
             else:
                 # Fallback - use old format string method with value font
@@ -442,7 +450,7 @@ class TextRenderer:
                 except Exception as e:
                     self.logger.warning(f"Error formatting metric {config.name}: {e}")
                     text = f"{label_text}: {value_text}"
-                self._draw_text_with_effects(draw, image, config.position, text, value_font, config.color)
+                self._draw_text_with_effects(draw, image, config.position, text, value_font, config.color, use_gradient)
 
     def render_date(self, draw: ImageDraw.Draw, image: Image.Image, config: Optional[DateConfig], now: datetime = None):
         """Display current date with configurable format"""
@@ -461,11 +469,16 @@ class TextRenderer:
         
         current_date = now.strftime(format_str)
 
-        # Get font using global font configuration
-        font = self._get_font(config.font_size)
+        # Get font using per-widget font configuration
+        font_name = getattr(config, 'font_name', None)
+        bold = getattr(config, 'bold', False)
+        font = self._get_font(config.font_size, font_name, bold)
+
+        # Check if widget wants to use gradient (default True for backward compat)
+        use_gradient = getattr(config, 'use_gradient', True)
 
         # Draw text with effects
-        self._draw_text_with_effects(draw, image, config.position, current_date, font, config.color)
+        self._draw_text_with_effects(draw, image, config.position, current_date, font, config.color, use_gradient)
 
     def render_time(self, draw: ImageDraw.Draw, image: Image.Image, config: Optional[TimeConfig], now: datetime = None):
         """Display current time with configurable format"""
@@ -484,22 +497,32 @@ class TextRenderer:
         
         current_time = now.strftime(format_str)
 
-        # Get font using global font configuration
-        font = self._get_font(config.font_size)
+        # Get font using per-widget font configuration
+        font_name = getattr(config, 'font_name', None)
+        bold = getattr(config, 'bold', False)
+        font = self._get_font(config.font_size, font_name, bold)
+
+        # Check if widget wants to use gradient (default True for backward compat)
+        use_gradient = getattr(config, 'use_gradient', True)
 
         # Draw text with effects
-        self._draw_text_with_effects(draw, image, config.position, current_time, font, config.color)
+        self._draw_text_with_effects(draw, image, config.position, current_time, font, config.color, use_gradient)
 
     def render_custom_text(self, draw: ImageDraw.Draw, image: Image.Image, config: TextConfig):
         """Display custom text"""
         if not config.enabled or not config.text:
             return
 
-        # Get font using global font configuration
-        font = self._get_font(config.font_size)
+        # Get font using per-widget font configuration
+        font_name = getattr(config, 'font_name', None)
+        bold = getattr(config, 'bold', False)
+        font = self._get_font(config.font_size, font_name, bold)
+
+        # Check if widget wants to use gradient (default True for backward compat)
+        use_gradient = getattr(config, 'use_gradient', True)
 
         # Draw text with effects
-        self._draw_text_with_effects(draw, image, config.position, config.text, font, config.color)
+        self._draw_text_with_effects(draw, image, config.position, config.text, font, config.color, use_gradient)
 
     def render_bar_graphs(self, draw: ImageDraw.Draw, image: Image.Image, 
                           metrics: Optional[Dict[str, Any]], configs: List[BarGraphConfig]):

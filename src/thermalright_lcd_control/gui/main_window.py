@@ -3,8 +3,8 @@
 
 """Main window for Media Preview application"""
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
-from PySide6.QtWidgets import (QTabWidget, QFrame, QColorDialog, QMessageBox, QInputDialog)
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton
+from PySide6.QtWidgets import (QTabWidget, QFrame, QColorDialog, QMessageBox, QInputDialog, QComboBox, QLabel as QWidgetLabel)
 from PySide6.QtCore import QTimer
 
 from thermalright_lcd_control.gui.components.config_generator import ConfigGenerator
@@ -17,6 +17,8 @@ from thermalright_lcd_control.gui.tabs.gpu_tab import GPUTab
 from thermalright_lcd_control.gui.tabs.info_tab import InfoTab
 from thermalright_lcd_control.gui.utils.config_loader import load_config
 from thermalright_lcd_control.gui.widgets.draggable_widget import *
+from thermalright_lcd_control.gui.widgets.widget_palette import WidgetPalette
+from thermalright_lcd_control.gui.widgets.drop_preview import DropPreviewWidget
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
@@ -114,11 +116,19 @@ class MediaPreviewUI(QMainWindow):
         # Create overlay widgets first
         self.create_overlay_widgets()
 
+        # Connect application focus change to track widget selection
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().focusChanged.connect(self._on_app_focus_changed)
+
         # Initialize widget configs for preview rendering
         self.update_preview_widget_configs()
 
         # Controls (now that metric_widgets exists) - takes remaining space
         self.controls_manager = ControlsManager(self, self.text_style, self.metric_widgets)
+        
+        # Widget palette (collapsible, expands upward) - above action buttons
+        self.widget_palette = WidgetPalette(expand_upward=True)
+        left_layout.addWidget(self.widget_palette)
         
         # Action buttons stay fixed at top (outside scroll area)
         left_layout.addWidget(self.controls_manager.create_action_buttons())
@@ -142,12 +152,76 @@ class MediaPreviewUI(QMainWindow):
 
     def setup_preview_area(self, parent_layout):
         """Configure preview area with device-specific size"""
-        # Use 1:1 scale - preview matches LCD exactly for accurate positioning
-        base_width = self.detected_device['width'] if self.detected_device else 320
-        base_height = self.detected_device['height'] if self.detected_device else 240
-        self.preview_scale = 1.0
-        preview_width = int(base_width * self.preview_scale)
-        preview_height = int(base_height * self.preview_scale)
+        # Store base device dimensions for scaling calculations
+        self.base_device_width = self.detected_device['width'] if self.detected_device else 320
+        self.base_device_height = self.detected_device['height'] if self.detected_device else 240
+        
+        # Default to 1.5x scale for better visibility
+        self.preview_scale = 1.5
+        preview_width = int(self.base_device_width * self.preview_scale)
+        preview_height = int(self.base_device_height * self.preview_scale)
+
+        # Container for preview and zoom controls
+        preview_container = QWidget()
+        preview_container_layout = QVBoxLayout(preview_container)
+        preview_container_layout.setContentsMargins(0, 0, 0, 0)
+        preview_container_layout.setSpacing(4)
+        
+        # Zoom controls row
+        zoom_row = QWidget()
+        zoom_layout = QHBoxLayout(zoom_row)
+        zoom_layout.setContentsMargins(0, 0, 0, 0)
+        zoom_layout.setSpacing(4)
+        
+        # Create zoom button group
+        self.zoom_buttons = {}
+        zoom_btn_style_normal = """
+            QPushButton {
+                background-color: #ecf0f1;
+                border: 1px solid #dcdde1;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-weight: 500;
+                color: #2c3e50;
+                min-width: 45px;
+            }
+            QPushButton:hover {
+                background-color: #d5dbdb;
+            }
+        """
+        zoom_btn_style_active = """
+            QPushButton {
+                background-color: #3498db;
+                border: 1px solid #2980b9;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-weight: bold;
+                color: white;
+                min-width: 45px;
+            }
+        """
+        
+        for zoom_value, label in [(1.0, "100%"), (1.5, "150%"), (2.0, "200%")]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setStyleSheet(zoom_btn_style_normal)
+            btn.clicked.connect(lambda checked, z=zoom_value: self._on_zoom_button_clicked(z))
+            self.zoom_buttons[zoom_value] = btn
+        
+        # Set default (150%) as active
+        self.zoom_buttons[1.5].setChecked(True)
+        self.zoom_buttons[1.5].setStyleSheet(zoom_btn_style_active)
+        
+        # Store styles for later use
+        self._zoom_btn_style_normal = zoom_btn_style_normal
+        self._zoom_btn_style_active = zoom_btn_style_active
+        
+        zoom_layout.addStretch()
+        for zoom_value in [1.0, 1.5, 2.0]:
+            zoom_layout.addWidget(self.zoom_buttons[zoom_value])
+        zoom_layout.addStretch()
+        
+        preview_container_layout.addWidget(zoom_row)
 
         # Preview frame
         frame_width, frame_height = preview_width + 4, preview_height + 4
@@ -155,10 +229,11 @@ class MediaPreviewUI(QMainWindow):
         self.preview_frame.setObjectName("previewFrame")
         self.preview_frame.setFixedSize(frame_width, frame_height)
 
-        # Preview widget and label - use light background
-        self.preview_widget = QWidget(self.preview_frame)
+        # Preview widget - use DropPreviewWidget to accept widget palette drops
+        self.preview_widget = DropPreviewWidget(self.preview_frame)
         self.preview_widget.setGeometry(2, 2, preview_width, preview_height)
         self.preview_widget.setStyleSheet("background-color: #ecf0f1;")
+        self.preview_widget.widget_dropped.connect(self._on_palette_widget_dropped)
 
         self.preview_label = QLabel(self.preview_widget)
         self.preview_label.setGeometry(0, 0, preview_width, preview_height)
@@ -177,26 +252,138 @@ class MediaPreviewUI(QMainWindow):
         self.grid_overlay.setGeometry(0, 0, preview_width, preview_height)
         self.grid_overlay.set_grid_size(DraggableWidget.get_grid_size())
 
+        # Create resize handle manager for resizing selected widgets
+        self.resize_handle_manager = ResizeHandleManager(self.preview_widget)
+        self.resize_handle_manager.set_preview_scale(self.preview_scale)
+        self.resize_handle_manager.sizeChanged.connect(self._on_widget_size_changed)
+        self.resize_handle_manager.rotationChanged.connect(self._on_widget_rotation_changed)
+
         # Initialize preview manager with actual components (use base device dimensions)
         self.preview_manager = PreviewManager(self.config, self.preview_label, self.text_style)
         self.preview_manager.set_preview_scale(self.preview_scale)
-        self.preview_manager.set_device_dimensions(base_width, base_height)
+        self.preview_manager.set_device_dimensions(self.base_device_width, self.base_device_height)
 
-        # Add preview frame directly (aligned to top)
-        parent_layout.addWidget(self.preview_frame, 0, Qt.AlignTop | Qt.AlignHCenter)
+        # Add preview frame to container
+        preview_container_layout.addWidget(self.preview_frame, 0, Qt.AlignHCenter)
+        
+        parent_layout.addWidget(preview_container, 0, Qt.AlignTop | Qt.AlignHCenter)
+
+    def _on_zoom_button_clicked(self, zoom_value: float):
+        """Handle zoom button click"""
+        # Update button styles
+        for z, btn in self.zoom_buttons.items():
+            if z == zoom_value:
+                btn.setChecked(True)
+                btn.setStyleSheet(self._zoom_btn_style_active)
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet(self._zoom_btn_style_normal)
+        
+        # Apply the zoom change
+        self._apply_zoom(zoom_value)
+
+    def _apply_zoom(self, new_scale: float):
+        
+        if new_scale == self.preview_scale:
+            return
+        
+        old_scale = self.preview_scale
+        self.preview_scale = new_scale
+        
+        # Calculate new preview dimensions
+        preview_width = int(self.base_device_width * self.preview_scale)
+        preview_height = int(self.base_device_height * self.preview_scale)
+        
+        # Resize preview frame and widget
+        self.preview_frame.setFixedSize(preview_width + 4, preview_height + 4)
+        self.preview_widget.setGeometry(2, 2, preview_width, preview_height)
+        self.preview_label.setGeometry(0, 0, preview_width, preview_height)
+        
+        # Resize grid overlay
+        self.grid_overlay.setGeometry(0, 0, preview_width, preview_height)
+        
+        # Update foreground widget bounds and scale
+        self.foreground_widget.setGeometry(0, 0, preview_width, preview_height)
+        self.foreground_widget.set_preview_scale(self.preview_scale)
+        self.foreground_widget._preview_bounds = (preview_width, preview_height)
+        
+        # Update preview manager scale
+        self.preview_manager.set_preview_scale(self.preview_scale)
+        
+        # Rescale all widget positions (convert from old scale to new scale)
+        scale_ratio = new_scale / old_scale
+        
+        # Date widget - update scale and position
+        if hasattr(self, 'date_widget') and self.date_widget:
+            old_pos = self.date_widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            self.date_widget.set_preview_scale(self.preview_scale)
+            self.date_widget.move(new_x, new_y)
+        
+        # Time widget - update scale and position
+        if hasattr(self, 'time_widget') and self.time_widget:
+            old_pos = self.time_widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            self.time_widget.set_preview_scale(self.preview_scale)
+            self.time_widget.move(new_x, new_y)
+        
+        # Metric widgets - update scale and position
+        for widget in self.metric_widgets.values():
+            old_pos = widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            widget.set_preview_scale(self.preview_scale)
+            widget.move(new_x, new_y)
+        
+        # Text widgets - update scale and position
+        for widget in self.text_widgets.values():
+            old_pos = widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            widget.set_preview_scale(self.preview_scale)
+            widget.move(new_x, new_y)
+        
+        # Bar widgets - update scale and position
+        for widget in self.bar_widgets.values():
+            old_pos = widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            widget.set_preview_scale(self.preview_scale)
+            widget.move(new_x, new_y)
+        
+        # Arc widgets - update scale and position
+        for widget in self.arc_widgets.values():
+            old_pos = widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            widget.set_preview_scale(self.preview_scale)
+            widget.move(new_x, new_y)
+        
+        # Update resize handle manager scale and positions
+        if hasattr(self, 'resize_handle_manager'):
+            self.resize_handle_manager.set_preview_scale(self.preview_scale)
+        
+        # Refresh preview to apply new scale
+        self.preview_manager.create_display_generator()
+        
+        self.logger.info(f"Preview zoom changed to {int(new_scale * 100)}%")
 
     def create_overlay_widgets(self):
         """Create all overlay widgets"""
-        # Date widget
+        # Date widget - scale initial position and set preview scale
         self.date_widget = DateWidget(self.preview_widget)
-        self.date_widget.move(200, 10)
+        self.date_widget.set_preview_scale(self.preview_scale)
+        self.date_widget.move(int(200 * self.preview_scale), int(10 * self.preview_scale))
         self.date_widget.apply_style(self.text_style)
         self.date_widget.set_enabled(True)
         self.date_widget.positionChanged.connect(lambda pos: self.on_widget_position_changed('date', pos))
 
-        # Time widget
+        # Time widget - scale initial position and set preview scale
         self.time_widget = TimeWidget(self.preview_widget)
-        self.time_widget.move(200, 40)
+        self.time_widget.set_preview_scale(self.preview_scale)
+        self.time_widget.move(int(200 * self.preview_scale), int(40 * self.preview_scale))
         self.time_widget.apply_style(self.text_style)
         self.time_widget.set_enabled(False)
         self.time_widget.positionChanged.connect(lambda pos: self.on_widget_position_changed('time', pos))
@@ -219,6 +406,7 @@ class MediaPreviewUI(QMainWindow):
             else:
                 metric = self.gpu_metric
             widget = MetricWidget(metric=metric, parent=self.preview_widget, metric_name=metric_name)
+            widget.set_preview_scale(self.preview_scale)
             widget.apply_style(self.text_style)
             widget.set_enabled(False)
             widget.positionChanged.connect(lambda pos, name=metric_name: self.on_widget_position_changed(name, pos))
@@ -229,6 +417,7 @@ class MediaPreviewUI(QMainWindow):
         for i in range(1, 5):
             widget_name = f"text{i}"
             widget = FreeTextWidget(parent=self.preview_widget, widget_name=widget_name)
+            widget.set_preview_scale(self.preview_scale)
             widget.apply_style(self.text_style)
             widget.set_enabled(False)
             widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
@@ -240,6 +429,7 @@ class MediaPreviewUI(QMainWindow):
             for i in range(1, 3):  # 2 bars each for CPU and GPU
                 widget_name = f"{prefix}_bar{i}"
                 widget = BarGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+                widget.set_preview_scale(self.preview_scale)
                 widget.set_enabled(False)
                 widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
                 self.bar_widgets[widget_name] = widget
@@ -250,12 +440,203 @@ class MediaPreviewUI(QMainWindow):
             for i in range(1, 3):  # 2 arcs each for CPU and GPU
                 widget_name = f"{prefix}_arc{i}"
                 widget = CircularGraphWidget(parent=self.preview_widget, widget_name=widget_name)
+                widget.set_preview_scale(self.preview_scale)
                 widget.set_enabled(False)
                 widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
                 self.arc_widgets[widget_name] = widget
 
+        # Create property popups for double-click editing
+        self._create_property_popups()
+        
+        # Connect double-click signals to show popups
+        self._connect_double_click_handlers()
+
         # Ensure overlay widgets are above the foreground drag handle
         self._raise_overlay_widgets()
+
+    def _create_property_popups(self):
+        """Create property popup instances for each widget type"""
+        self.text_property_popup = TextPropertyPopup()
+        self.text_property_popup.propertyChanged.connect(self._on_popup_property_changed)
+        
+        self.metric_property_popup = MetricPropertyPopup()
+        self.metric_property_popup.propertyChanged.connect(self._on_popup_property_changed)
+        
+        self.bar_property_popup = BarGraphPropertyPopup()
+        self.bar_property_popup.propertyChanged.connect(self._on_popup_property_changed)
+        
+        self.arc_property_popup = ArcGraphPropertyPopup()
+        self.arc_property_popup.propertyChanged.connect(self._on_popup_property_changed)
+
+    def _connect_double_click_handlers(self):
+        """Connect double-click signals from widgets to show property popups"""
+        # Date and Time widgets use text popup
+        if self.date_widget:
+            self.date_widget.doubleClicked.connect(
+                lambda w, pos: self.text_property_popup.show_for_widget(w, pos))
+        if self.time_widget:
+            self.time_widget.doubleClicked.connect(
+                lambda w, pos: self.text_property_popup.show_for_widget(w, pos))
+        
+        # Metric widgets use metric popup
+        for widget in self.metric_widgets.values():
+            widget.doubleClicked.connect(
+                lambda w, pos: self.metric_property_popup.show_for_widget(w, pos))
+        
+        # Free text widgets use text popup
+        for widget in self.text_widgets.values():
+            widget.doubleClicked.connect(
+                lambda w, pos: self.text_property_popup.show_for_widget(w, pos))
+        
+        # Bar widgets use bar popup
+        for widget in self.bar_widgets.values():
+            widget.doubleClicked.connect(
+                lambda w, pos: self.bar_property_popup.show_for_widget(w, pos))
+        
+        # Arc widgets use arc popup
+        for widget in self.arc_widgets.values():
+            widget.doubleClicked.connect(
+                lambda w, pos: self.arc_property_popup.show_for_widget(w, pos))
+
+    def _on_popup_property_changed(self, widget, property_name, value):
+        """Handle property changes from popup - update config and trigger preview refresh"""
+        self.logger.debug(f"Property changed via popup: {widget} {property_name} = {value}")
+        # Schedule config update
+        self.update_preview_widget_configs()
+
+    def _on_palette_widget_dropped(self, widget_type: str, x: int, y: int):
+        """Handle widget dropped from palette - create new widget at drop position"""
+        self.logger.info(f"Widget dropped from palette: {widget_type} at ({x}, {y})")
+        
+        # Convert preview coordinates to device coordinates
+        device_x = int(x / self.preview_scale)
+        device_y = int(y / self.preview_scale)
+        
+        # Create widget based on type
+        if widget_type == "date":
+            self._enable_or_create_date_widget(x, y)
+        elif widget_type == "time":
+            self._enable_or_create_time_widget(x, y)
+        elif widget_type == "free_text":
+            self._create_new_text_widget(x, y)
+        elif widget_type in ["cpu_usage", "cpu_temperature", "cpu_frequency", "cpu_name",
+                            "gpu_usage", "gpu_temperature", "gpu_frequency", "gpu_name",
+                            "ram_percent", "ram_total", "gpu_mem_percent", "gpu_mem_total"]:
+            self._enable_or_create_metric_widget(widget_type, x, y)
+        elif widget_type == "bar_graph":
+            self._create_new_bar_widget(x, y)
+        elif widget_type == "arc_graph":
+            self._create_new_arc_widget(x, y)
+        else:
+            self.logger.warning(f"Unknown widget type dropped: {widget_type}")
+    
+    def _enable_or_create_date_widget(self, x: int, y: int):
+        """Enable date widget and move to position"""
+        if self.date_widget:
+            self.date_widget.set_enabled(True)
+            self.date_widget.move(x, y)
+            self.date_widget.show()
+            self.date_widget.raise_()
+            self.update_preview_widget_configs()
+    
+    def _enable_or_create_time_widget(self, x: int, y: int):
+        """Enable time widget and move to position"""
+        if self.time_widget:
+            self.time_widget.set_enabled(True)
+            self.time_widget.move(x, y)
+            self.time_widget.show()
+            self.time_widget.raise_()
+            self.update_preview_widget_configs()
+    
+    def _enable_or_create_metric_widget(self, metric_name: str, x: int, y: int):
+        """Enable metric widget and move to position"""
+        if metric_name in self.metric_widgets:
+            widget = self.metric_widgets[metric_name]
+            widget.set_enabled(True)
+            widget.move(x, y)
+            widget.show()
+            widget.raise_()
+            self.update_preview_widget_configs()
+            
+            # Also enable in the appropriate tab
+            tab = self._get_tab_for_metric(metric_name)
+            if tab and hasattr(tab, 'set_metric_enabled'):
+                tab.set_metric_enabled(metric_name, True)
+    
+    def _create_new_text_widget(self, x: int, y: int):
+        """Create a new free text widget or enable first disabled one"""
+        # Prompt for text first
+        text, ok = QInputDialog.getText(
+            self, "Add Text Widget",
+            "Enter the text to display:",
+            text="Sample Text"
+        )
+        
+        if not ok or not text.strip():
+            return  # User cancelled or entered empty text
+        
+        # Find first disabled text widget
+        for widget_name, widget in self.text_widgets.items():
+            if not widget.enabled:
+                widget.set_enabled(True)
+                widget.set_text(text.strip())
+                widget.move(x, y)
+                widget.show()
+                widget.raise_()
+                self.update_preview_widget_configs()
+                return
+        
+        # All text widgets in use - show message
+        QMessageBox.information(
+            self, "Text Widget Limit",
+            "All 4 text widgets are already in use. Please disable one to add another."
+        )
+    
+    def _create_new_bar_widget(self, x: int, y: int):
+        """Create a new bar graph widget or enable first disabled one"""
+        # Find first disabled bar widget
+        for widget_name, widget in self.bar_widgets.items():
+            if not widget.enabled:
+                widget.set_enabled(True)
+                widget.move(x, y)
+                widget.show()
+                widget.raise_()
+                self.update_preview_widget_configs()
+                
+                # Also enable in the appropriate tab
+                tab = self._get_tab_for_bar(widget_name)
+                if tab and hasattr(tab, 'set_bar_enabled'):
+                    tab.set_bar_enabled(widget_name, True)
+                return
+        
+        # All bar widgets in use
+        QMessageBox.information(
+            self, "Bar Graph Limit",
+            "All 4 bar graph widgets are already in use. Please disable one to add another."
+        )
+    
+    def _create_new_arc_widget(self, x: int, y: int):
+        """Create a new arc/circular graph widget or enable first disabled one"""
+        # Find first disabled arc widget
+        for widget_name, widget in self.arc_widgets.items():
+            if not widget.enabled:
+                widget.set_enabled(True)
+                widget.move(x, y)
+                widget.show()
+                widget.raise_()
+                self.update_preview_widget_configs()
+                
+                # Also enable in the appropriate tab
+                tab = self._get_tab_for_arc(widget_name)
+                if tab and hasattr(tab, 'set_arc_enabled'):
+                    tab.set_arc_enabled(widget_name, True)
+                return
+        
+        # All arc widgets in use
+        QMessageBox.information(
+            self, "Arc Graph Limit",
+            "All 4 arc graph widgets are already in use. Please disable one to add another."
+        )
 
     def _raise_overlay_widgets(self):
         """Raise all overlay widgets in proper z-order hierarchy.
@@ -547,15 +928,18 @@ class MediaPreviewUI(QMainWindow):
     def apply_widget_config(self, widget, config):
         """Apply configuration to a date/time widget"""
         try:
+            # Set preview scale for proper display sizing
+            widget.set_preview_scale(self.preview_scale)
+            
             # Apply enabled state
             enabled = config.get('enabled', False)
             widget.set_enabled(enabled)
 
-            # Apply position (1:1 scale - no conversion needed)
+            # Apply position (convert device coords to preview coords)
             position = config.get('position', {})
             if position:
-                x = position.get('x', 0)
-                y = position.get('y', 0)
+                x = int(position.get('x', 0) * self.preview_scale)
+                y = int(position.get('y', 0) * self.preview_scale)
                 widget.move(x, y)
 
             # Apply font size
@@ -702,16 +1086,19 @@ class MediaPreviewUI(QMainWindow):
                     continue
 
                 widget = self.metric_widgets[metric_name]
+                
+                # Set preview scale for proper display sizing
+                widget.set_preview_scale(self.preview_scale)
 
                 # Apply enabled state
                 enabled = metric_config.get('enabled', False)
                 widget.set_enabled(enabled)
 
-                # Apply position (1:1 scale - no conversion needed)
+                # Apply position (convert device coords to preview coords)
                 position = metric_config.get('position', {})
                 if position:
-                    x = position.get('x', 0)
-                    y = position.get('y', 0)
+                    x = int(position.get('x', 0) * self.preview_scale)
+                    y = int(position.get('y', 0) * self.preview_scale)
                     widget.move(x, y)
 
                 # Apply custom label and unit
@@ -813,16 +1200,19 @@ class MediaPreviewUI(QMainWindow):
                     continue
 
                 widget = self.text_widgets[text_name]
+                
+                # Set preview scale for proper display sizing
+                widget.set_preview_scale(self.preview_scale)
 
                 # Apply enabled state
                 enabled = text_config.get('enabled', False)
                 widget.set_enabled(enabled)
 
-                # Apply position (1:1 scale - no conversion needed)
+                # Apply position (convert device coords to preview coords)
                 position = text_config.get('position', {})
                 if position:
-                    x = position.get('x', 0)
-                    y = position.get('y', 0)
+                    x = int(position.get('x', 0) * self.preview_scale)
+                    y = int(position.get('y', 0) * self.preview_scale)
                     widget.move(x, y)
 
                 # Apply text content
@@ -874,6 +1264,9 @@ class MediaPreviewUI(QMainWindow):
                     continue
 
                 widget = self.bar_widgets[bar_name]
+                
+                # Set preview scale for widget drawing
+                widget.set_preview_scale(self.preview_scale)
 
                 # Apply enabled state
                 enabled = bar_config.get('enabled', False)
@@ -1014,6 +1407,9 @@ class MediaPreviewUI(QMainWindow):
                     continue
 
                 widget = self.arc_widgets[arc_name]
+                
+                # Set preview scale for widget drawing
+                widget.set_preview_scale(self.preview_scale)
 
                 # Apply enabled state
                 enabled = arc_config.get('enabled', False)
@@ -1038,7 +1434,7 @@ class MediaPreviewUI(QMainWindow):
 
                 # Apply position (convert from device to preview coordinates)
                 # Position is center of arc, need to convert to widget top-left
-                # Must account for rotation in size calculation (matching get_position())
+                # Must account for rotation and preview scale in size calculation
                 position = arc_config.get('position', {})
                 if position:
                     import math
@@ -1046,9 +1442,12 @@ class MediaPreviewUI(QMainWindow):
                     center_y = int(position.get('y', 0) * self.preview_scale)
                     # Widget position = center - (widget_size / 2)
                     # Widget size = diameter + thickness + border_padding * 2
+                    # Account for preview scale in size calculation
                     border_padding = 4
-                    diameter = radius * 2
-                    base_size = diameter + thickness + border_padding * 2
+                    scaled_radius = int(radius * self.preview_scale)
+                    scaled_thickness = int(thickness * self.preview_scale)
+                    diameter = scaled_radius * 2
+                    base_size = diameter + scaled_thickness + border_padding * 2
                     
                     # Calculate total size accounting for rotation (must match get_position())
                     if rotation != 0:
@@ -1474,8 +1873,99 @@ class MediaPreviewUI(QMainWindow):
                 if self.controls_manager.time_position_label:
                     self.controls_manager.time_position_label.setText(f"({device_x}, {device_y})")
         
+        # Update resize handle positions when widget moves
+        if hasattr(self, 'resize_handle_manager') and self.resize_handle_manager._target:
+            self.resize_handle_manager._update_handle_positions()
+        
         # Debounce preview update - restart timer on each move
         self._position_update_timer.start()
+
+    def _on_widget_size_changed(self, widget, property_name, new_value):
+        """Handle widget size/property change from resize handles"""
+        self.logger.debug(f"Widget {widget.__class__.__name__} {property_name} changed to {new_value}")
+        
+        # Update controls to reflect new values
+        # For bar widgets
+        if hasattr(widget, 'name') and widget.name in self.bar_widgets:
+            if hasattr(self, 'controls_manager') and self.controls_manager:
+                # The controls manager may have spinboxes for width/height
+                # We'll trigger a preview update
+                pass
+        
+        # For arc widgets
+        if hasattr(widget, 'name') and widget.name in self.arc_widgets:
+            pass
+        
+        # For text widgets - update font size display
+        if property_name == 'font_size':
+            # Update preview
+            pass
+        
+        # Debounce preview update
+        self._position_update_timer.start()
+
+    def _on_widget_rotation_changed(self, widget, angle):
+        """Handle widget rotation change from rotation handle"""
+        self.logger.debug(f"Widget {widget.__class__.__name__} rotation changed to {angle}°")
+        
+        # Debounce preview update
+        self._position_update_timer.start()
+
+    def _on_widget_focus_changed(self, widget, focused):
+        """Handle widget focus change to show/hide resize handles"""
+        if focused:
+            # Show resize handles for this widget
+            if hasattr(self, 'resize_handle_manager'):
+                self.resize_handle_manager.attach_to(widget)
+        else:
+            # Check if focus moved to another tracked widget
+            # If not, detach handles
+            from PySide6.QtWidgets import QApplication
+            focused_widget = QApplication.focusWidget()
+            
+            # Check if the new focus is one of our tracked widgets
+            is_tracked = False
+            all_widgets = [self.date_widget, self.time_widget]
+            all_widgets.extend(self.metric_widgets.values())
+            all_widgets.extend(self.text_widgets.values())
+            all_widgets.extend(self.bar_widgets.values())
+            all_widgets.extend(self.arc_widgets.values())
+            
+            for w in all_widgets:
+                if w == focused_widget:
+                    is_tracked = True
+                    break
+            
+            if not is_tracked:
+                self.resize_handle_manager.detach()
+
+    def _on_app_focus_changed(self, old_widget, new_widget):
+        """Handle application-wide focus changes to show/hide resize handles"""
+        if not hasattr(self, 'resize_handle_manager'):
+            return
+        
+        # Get list of all tracked widgets
+        all_widgets = [self.date_widget, self.time_widget]
+        all_widgets.extend(self.metric_widgets.values())
+        all_widgets.extend(self.text_widgets.values())
+        all_widgets.extend(self.bar_widgets.values())
+        all_widgets.extend(self.arc_widgets.values())
+        
+        # Check if new focus is a tracked widget
+        if new_widget in all_widgets:
+            self.resize_handle_manager.attach_to(new_widget)
+        elif new_widget is None or new_widget not in all_widgets:
+            # Check if the new_widget is a resize handle (shouldn't happen with NoFocus)
+            if new_widget is not None and hasattr(new_widget, '_handle_type'):
+                return  # Focus is on resize handle, keep handles visible
+            
+            # Check if focus moved to preview_widget or preview_label
+            # This can happen when clicking on handles or empty space in preview
+            # In this case, keep handles if we still have a target
+            if new_widget in (self.preview_widget, self.preview_label):
+                return  # Keep handles visible when focus is in preview area
+            
+            self.resize_handle_manager.detach()
     
     def _do_update_preview_widget_configs(self):
         """Actually update preview widget configs (called by debounce timer)"""
@@ -1487,7 +1977,8 @@ class MediaPreviewUI(QMainWindow):
         def qcolor_to_rgba(qcolor):
             return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
         
-        text_color = qcolor_to_rgba(self.text_style.color)
+        # Default text color from global style (used as fallback)
+        default_text_color = qcolor_to_rgba(self.text_style.color)
         
         # Date config
         date_config = None
@@ -1495,10 +1986,19 @@ class MediaPreviewUI(QMainWindow):
             pos = self.date_widget.pos()
             device_x = int(pos.x() / self.preview_scale)
             device_y = int(pos.y() / self.preview_scale)
+            # Use widget's individual color if available
+            widget_color = qcolor_to_rgba(self.date_widget.get_color()) if hasattr(self.date_widget, 'get_color') else default_text_color
+            # Get font name and bold
+            font_name = self.date_widget.get_font_name() if hasattr(self.date_widget, 'get_font_name') else None
+            bold = self.date_widget.get_bold() if hasattr(self.date_widget, 'get_bold') else False
+            use_gradient = self.date_widget.get_use_gradient() if hasattr(self.date_widget, 'get_use_gradient') else True
             date_config = DateConfig(
                 position=(device_x, device_y),
                 font_size=self.date_widget.get_font_size(),
-                color=text_color,
+                color=widget_color,
+                font_name=font_name,
+                bold=bold,
+                use_gradient=use_gradient,
                 enabled=True,
                 show_weekday=self.date_widget.get_show_weekday(),
                 show_year=self.date_widget.get_show_year(),
@@ -1511,10 +2011,19 @@ class MediaPreviewUI(QMainWindow):
             pos = self.time_widget.pos()
             device_x = int(pos.x() / self.preview_scale)
             device_y = int(pos.y() / self.preview_scale)
+            # Use widget's individual color if available
+            widget_color = qcolor_to_rgba(self.time_widget.get_color()) if hasattr(self.time_widget, 'get_color') else default_text_color
+            # Get font name and bold
+            font_name = self.time_widget.get_font_name() if hasattr(self.time_widget, 'get_font_name') else None
+            bold = self.time_widget.get_bold() if hasattr(self.time_widget, 'get_bold') else False
+            use_gradient = self.time_widget.get_use_gradient() if hasattr(self.time_widget, 'get_use_gradient') else True
             time_config = TimeConfig(
                 position=(device_x, device_y),
                 font_size=self.time_widget.get_font_size(),
-                color=text_color,
+                color=widget_color,
+                font_name=font_name,
+                bold=bold,
+                use_gradient=use_gradient,
                 enabled=True,
                 use_24_hour=self.time_widget.get_use_24_hour(),
                 show_seconds=self.time_widget.get_show_seconds(),
@@ -1564,13 +2073,24 @@ class MediaPreviewUI(QMainWindow):
                     # Get character limit for name metrics
                     char_limit = widget.get_char_limit() if hasattr(widget, 'get_char_limit') else 0
                     
+                    # Use widget's individual color if available
+                    widget_color = qcolor_to_rgba(widget.get_color()) if hasattr(widget, 'get_color') else default_text_color
+                    
+                    # Get font name and bold
+                    font_name = widget.get_font_name() if hasattr(widget, 'get_font_name') else None
+                    bold = widget.get_bold() if hasattr(widget, 'get_bold') else False
+                    use_gradient = widget.get_use_gradient() if hasattr(widget, 'get_use_gradient') else True
+                    
                     metrics_configs.append(MetricConfig(
                         name=metric_name,
                         label=widget.get_label(),
                         position=(device_x, device_y),
                         font_size=widget.get_font_size(),
                         label_font_size=widget.get_label_font_size(),
-                        color=text_color,
+                        color=widget_color,
+                        font_name=font_name,
+                        bold=bold,
+                        use_gradient=use_gradient,
                         unit=widget.get_unit(),
                         enabled=True,
                         label_position=label_pos,
@@ -1589,11 +2109,22 @@ class MediaPreviewUI(QMainWindow):
                     device_x = int(pos.x() / self.preview_scale)
                     device_y = int(pos.y() / self.preview_scale)
                     
+                    # Use widget's individual color if available
+                    widget_color = qcolor_to_rgba(widget.get_color()) if hasattr(widget, 'get_color') else default_text_color
+                    
+                    # Get font name and bold
+                    font_name = widget.get_font_name() if hasattr(widget, 'get_font_name') else None
+                    bold = widget.get_bold() if hasattr(widget, 'get_bold') else False
+                    use_gradient = widget.get_use_gradient() if hasattr(widget, 'get_use_gradient') else True
+                    
                     text_configs.append(TextConfig(
                         text=widget.get_text(),
                         position=(device_x, device_y),
                         font_size=widget.get_font_size(),
-                        color=text_color,
+                        color=widget_color,
+                        font_name=font_name,
+                        bold=bold,
+                        use_gradient=use_gradient,
                         enabled=True
                     ))
         

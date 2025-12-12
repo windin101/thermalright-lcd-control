@@ -10,5 +10,6 @@ from .themes_tab import ThemesTab
 from .cpu_tab import CPUTab
 from .gpu_tab import GPUTab
 from .info_tab import InfoTab
+from .shapes_tab import ShapesTab
 
-__all__ = ['MediaTab', 'ThemesTab', 'CPUTab', 'GPUTab', 'InfoTab']
+__all__ = ['MediaTab', 'ThemesTab', 'CPUTab', 'GPUTab', 'InfoTab', 'ShapesTab']

@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from PIL import ImageDraw, ImageFont, ImageFilter, Image
 
-from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig, CircularGraphConfig
+from thermalright_lcd_control.device_controller.display.config import TextConfig, MetricConfig, DisplayConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig, CircularGraphConfig, ShapeConfig, ShapeType
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 # Import font manager from current package
@@ -874,6 +874,202 @@ class TextRenderer:
         cx, cy = config.position
         paste_x = cx - total_size // 2
         paste_y = cy - total_size // 2
+        
+        # Paste onto main image using alpha channel as mask
+        image.paste(rotated, (paste_x, paste_y), rotated)
+
+    def render_shapes(self, draw: ImageDraw.Draw, image: Image.Image, 
+                      configs: List[ShapeConfig]):
+        """Render decorative shape elements (rectangles, circles, lines, etc.)
+        
+        These are rendered after bar and circular graphs but BEFORE text/metrics so
+        they appear above graph elements and behind text overlays. Good for borders,
+        separators, and background decoration that should sit between graphs and text.
+        """
+        if not configs:
+            return
+
+        for config in configs:
+            # Backwards-compat: accept dicts from YAML-loaded configs and convert to ShapeConfig-like object
+            if isinstance(config, dict):
+                # Minimal conversion for needed attributes
+                def parse_color(val):
+                    if not val:
+                        return (0, 0, 0, 255)
+                    if isinstance(val, (list, tuple)) and len(val) in (3, 4):
+                        if len(val) == 3:
+                            return (int(val[0]), int(val[1]), int(val[2]), 255)
+                        return (int(val[0]), int(val[1]), int(val[2]), int(val[3]))
+                    s = str(val).lstrip('#')
+                    if len(s) == 8:
+                        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16); a = int(s[6:8], 16)
+                        return (r, g, b, a)
+                    if len(s) == 6:
+                        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16)
+                        return (r, g, b, 255)
+                    return (0, 0, 0, 255)
+
+                cfg = ShapeConfig(
+                    shape_type=ShapeType(config.get('shape_type', 'rectangle')) if config.get('shape_type') else ShapeType.RECTANGLE,
+                    position=(int(config.get('position', {}).get('x', 0)) if isinstance(config.get('position'), dict) else int((config.get('position', 0) or 0)),
+                              int(config.get('position', {}).get('y', 0)) if isinstance(config.get('position'), dict) else int((config.get('position', 1) or 0))),
+                    width=int(config.get('width', 0)),
+                    height=int(config.get('height', 0)),
+                    rotation=int(config.get('rotation', 0)),
+                    filled=bool(config.get('filled', True)),
+                    fill_color=parse_color(config.get('fill_color')),
+                    border_color=parse_color(config.get('border_color')),
+                    border_width=int(config.get('border_width', 0)),
+                    corner_radius=int(config.get('corner_radius', 0)),
+                    arrow_head_size=int(config.get('arrow_head_size', 0)),
+                    enabled=bool(config.get('enabled', True))
+                )
+                config = cfg
+            if not config.enabled:
+                continue
+            # Log basic shape draw parameters for debugging
+            try:
+                self.logger.debug(f"Drawing shape: type={config.shape_type}, pos={config.position}, size=({config.width},{config.height}), rotation={config.rotation}, filled={config.filled}")
+            except Exception:
+                pass
+
+            x, y = config.position
+            w, h = config.width, config.height
+            rotation = config.rotation
+
+            # If rotation is non-zero, render to a temp image and rotate
+            if rotation != 0:
+                self._render_rotated_shape(image, config, x, y, w, h, rotation)
+            else:
+                self._render_shape_direct(draw, image, config, x, y, w, h)
+
+    def _render_shape_direct(self, draw: ImageDraw.Draw, image: Image.Image,
+                             config: ShapeConfig, x: int, y: int, w: int, h: int):
+        """Render a shape directly (no rotation)"""
+        shape_type = config.shape_type
+        filled = config.filled
+        fill_color = config.fill_color if filled else None
+        border_color = config.border_color if config.border_width > 0 else None
+        border_width = config.border_width
+
+        if shape_type == ShapeType.RECTANGLE:
+            if filled:
+                draw.rectangle([x, y, x + w, y + h], fill=fill_color)
+            if border_width > 0:
+                draw.rectangle([x, y, x + w, y + h], outline=border_color, width=border_width)
+
+        elif shape_type == ShapeType.ROUNDED_RECTANGLE:
+            radius = min(config.corner_radius, w // 2, h // 2)
+            if filled:
+                self._draw_rounded_rect(draw, x, y, w, h, radius, fill_color)
+            if border_width > 0:
+                self._draw_rounded_rect_outline(draw, x, y, w, h, radius, border_color, border_width)
+
+        elif shape_type == ShapeType.CIRCLE:
+            # Circle uses width as diameter, centered at position
+            diameter = w
+            cx, cy = x + w // 2, y + h // 2
+            r = diameter // 2
+            bbox = [cx - r, cy - r, cx + r, cy + r]
+            if filled:
+                draw.ellipse(bbox, fill=fill_color)
+            if border_width > 0:
+                draw.ellipse(bbox, outline=border_color, width=border_width)
+
+        elif shape_type == ShapeType.ELLIPSE:
+            bbox = [x, y, x + w, y + h]
+            if filled:
+                draw.ellipse(bbox, fill=fill_color)
+            if border_width > 0:
+                draw.ellipse(bbox, outline=border_color, width=border_width)
+
+        elif shape_type == ShapeType.LINE:
+            # Line from left-center to right-center
+            # Height represents line thickness
+            y_center = y + h // 2
+            line_width = max(h, 1)  # Use height as thickness
+            draw.line([x, y_center, x + w, y_center], fill=border_color or fill_color, width=line_width)
+
+        elif shape_type == ShapeType.TRIANGLE:
+            # Isoceles triangle pointing up
+            # Vertices: top-center, bottom-left, bottom-right
+            points = [
+                (x + w // 2, y),           # Top center
+                (x, y + h),                 # Bottom left
+                (x + w, y + h)              # Bottom right
+            ]
+            if filled:
+                draw.polygon(points, fill=fill_color)
+            if border_width > 0:
+                draw.polygon(points, outline=border_color)
+                # PIL polygon outline doesn't support width, so draw lines manually
+                if border_width > 1:
+                    draw.line([points[0], points[1]], fill=border_color, width=border_width)
+                    draw.line([points[1], points[2]], fill=border_color, width=border_width)
+                    draw.line([points[2], points[0]], fill=border_color, width=border_width)
+
+        elif shape_type == ShapeType.ARROW:
+            # Arrow pointing right: line with arrowhead
+            head_size = config.arrow_head_size
+            line_color = border_color or fill_color
+            line_width = max(h, 1)  # Height as line thickness
+            y_center = y + h // 2
+            
+            # Main line (stops before arrowhead)
+            arrow_body_end = x + w - head_size
+            draw.line([x, y_center, arrow_body_end, y_center], fill=line_color, width=line_width)
+            
+            # Arrowhead (triangle)
+            arrow_points = [
+                (x + w, y_center),                    # Tip
+                (arrow_body_end, y_center - head_size // 2),  # Top
+                (arrow_body_end, y_center + head_size // 2)   # Bottom
+            ]
+            draw.polygon(arrow_points, fill=line_color)
+
+    def _render_rotated_shape(self, image: Image.Image, config: ShapeConfig,
+                              x: int, y: int, w: int, h: int, rotation: int):
+        """Render a rotated shape by drawing to temp image and pasting"""
+        import math
+        
+        # Calculate size needed to contain rotated shape, including border padding so it
+        # matches the GUI overlay's padding calculations.
+        border_padding = 4
+        diagonal = int(math.ceil(math.sqrt(w**2 + h**2))) + border_padding * 2
+        
+        # Create temp image for the shape (with transparency)
+        shape_img = Image.new('RGBA', (diagonal, diagonal), (0, 0, 0, 0))
+        shape_draw = ImageDraw.Draw(shape_img)
+        
+        # Calculate offset to center shape in temp image
+        offset_x = int(round((diagonal - w) / 2.0))
+        offset_y = int(round((diagonal - h) / 2.0))
+        
+        # Create a modified config with adjusted position for temp image
+        temp_config = ShapeConfig(
+            shape_type=config.shape_type,
+            position=(offset_x, offset_y),
+            width=w,
+            height=h,
+            rotation=0,  # No rotation - we rotate the whole image
+            filled=config.filled,
+            fill_color=config.fill_color,
+            border_color=config.border_color,
+            border_width=config.border_width,
+            corner_radius=config.corner_radius,
+            arrow_head_size=config.arrow_head_size,
+            enabled=True
+        )
+        
+        # Render shape at offset position
+        self._render_shape_direct(shape_draw, shape_img, temp_config, offset_x, offset_y, w, h)
+        
+        # Rotate the shape image
+        rotated = shape_img.rotate(-rotation, expand=False, resample=Image.BICUBIC)
+        
+        # Calculate paste position (center the rotated image at the original position)
+        paste_x = int(round(x - (diagonal - w) / 2.0))
+        paste_y = int(round(y - (diagonal - h) / 2.0))
         
         # Paste onto main image using alpha channel as mask
         image.paste(rotated, (paste_x, paste_y), rotated)

@@ -21,7 +21,7 @@ class ConfigGenerator:
 
     def generate_config_data(self, preview_manager, text_style, metric_widgets,
                              date_widget, time_widget, text_widgets=None, bar_widgets=None, 
-                             arc_widgets=None) -> Optional[dict]:
+                             arc_widgets=None, shape_widgets=None) -> Optional[dict]:
         """Generate YAML configuration file based on current preview state"""
         try:
             # Get scale factor for converting preview coordinates to device coordinates
@@ -82,7 +82,8 @@ class ConfigGenerator:
                     "time": self._create_date_time_config(time_widget, 310, 35, text_style, scale),
                     "custom_texts": [],
                     "bar_graphs": [],
-                    "circular_graphs": []
+                    "circular_graphs": [],
+                    "shapes": []
                 }
             }
 
@@ -200,6 +201,40 @@ class ConfigGenerator:
                         }
                         config_data["display"]["circular_graphs"].append(arc_config)
 
+            # Add shape configurations
+            if shape_widgets:
+                for shape_name, widget in shape_widgets.items():
+                    if widget and widget.enabled:
+                        # Convert position from preview to device coordinates, accounting for
+                        # the widget's internal rotation padding so the saved position
+                        # represents the shape's top-left (not the bounding-box top-left).
+                        pos = widget.get_position()
+                        pad_x, pad_y = (0, 0)
+                        try:
+                            pad_x, pad_y = widget._get_rotation_padding()
+                        except Exception:
+                            pad_x, pad_y = (0, 0)
+
+                        device_x = int(round((pos[0] + pad_x) / scale))
+                        device_y = int(round((pos[1] + pad_y) / scale))
+
+                        shape_config = {
+                            "name": shape_name,
+                            "shape_type": widget.get_shape_type(),
+                            "enabled": widget.enabled,
+                            "position": {"x": device_x, "y": device_y},
+                            "width": widget.get_width(),
+                            "height": widget.get_height(),
+                            "rotation": widget.get_rotation(),
+                            "fill_color": self._qcolor_to_hex(widget.get_fill_color()),
+                            "border_color": self._qcolor_to_hex(widget.get_border_color()),
+                            "border_width": widget.get_border_width(),
+                            "filled": widget.get_filled(),
+                            "corner_radius": widget.get_corner_radius(),
+                            "arrow_head_size": widget.get_arrow_head_size()
+                        }
+                        config_data["display"]["shapes"].append(shape_config)
+
             return config_data
 
         except Exception as e:
@@ -208,7 +243,7 @@ class ConfigGenerator:
 
     def generate_config_yaml(self, preview_manager, text_style, metric_widgets,
                              date_widget, time_widget, text_widgets=None, bar_widgets=None,
-                             arc_widgets=None, preview: bool = False, existing_path: str = None,
+                             arc_widgets=None, shape_widgets=None, preview: bool = False, existing_path: str = None,
                              theme_name: str = None) -> Optional[str]:
         """Generate YAML configuration file based on current preview state
         
@@ -219,7 +254,7 @@ class ConfigGenerator:
         try:
             self.logger.info(f"generate_config_yaml: preview={preview}, existing_path={existing_path}, theme_name='{theme_name}'")
             config_data = self.generate_config_data(preview_manager, text_style, metric_widgets, date_widget,
-                                                    time_widget, text_widgets, bar_widgets, arc_widgets)
+                                                    time_widget, text_widgets, bar_widgets, arc_widgets, shape_widgets)
 
             # Use device dimensions, not scaled preview dimensions
             services_config_path = self._get_service_config_file_path(preview_manager.device_width,

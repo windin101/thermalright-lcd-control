@@ -7,6 +7,7 @@ from typing import Dict, Any, Tuple
 import yaml
 
 from thermalright_lcd_control.device_controller.display.config import DisplayConfig, BackgroundType, MetricConfig, TextConfig, LabelPosition, DateConfig, TimeConfig, BarGraphConfig, CircularGraphConfig
+from thermalright_lcd_control.device_controller.display.config import ShapeConfig, ShapeType
 from thermalright_lcd_control.common.logging_config import LoggerConfig
 
 
@@ -162,6 +163,45 @@ class ConfigLoader:
             enabled=arc_data.get("enabled", True),
             use_gradient=arc_data.get("use_gradient", False),
             gradient_colors=gradient_colors
+        )
+
+    def _parse_shape_config(self, shape_data: Dict[str, Any]) -> ShapeConfig:
+        """Parse a shape configuration from YAML data"""
+        # Parse basic fields
+        position = (
+            shape_data.get('position', {}).get('x', 0),
+            shape_data.get('position', {}).get('y', 0)
+        )
+
+        # Map shape_type string to enum
+        st = shape_data.get('shape_type', 'rectangle')
+        try:
+            st_enum = ShapeType(st)
+        except Exception:
+            # Try fallback by matching value
+            st_enum = ShapeType.RECTANGLE
+
+        # Convert color hex to RGBA
+        fill_color = None
+        if 'fill_color' in shape_data:
+            fill_color = self._hex_to_rgba(shape_data.get('fill_color'))
+        border_color = None
+        if 'border_color' in shape_data:
+            border_color = self._hex_to_rgba(shape_data.get('border_color'))
+
+        return ShapeConfig(
+            shape_type=st_enum,
+            position=position,
+            width=shape_data.get('width', 100),
+            height=shape_data.get('height', 50),
+            rotation=shape_data.get('rotation', 0),
+            filled=shape_data.get('filled', True),
+            fill_color=fill_color if fill_color else (100, 100, 100, 128),
+            border_color=border_color if border_color else (255, 255, 255, 255),
+            border_width=shape_data.get('border_width', 2),
+            corner_radius=shape_data.get('corner_radius', 0),
+            arrow_head_size=shape_data.get('arrow_head_size', 10),
+            enabled=shape_data.get('enabled', True)
         )
 
     def _parse_date_config(self, date_data: Dict[str, Any]) -> DateConfig:
@@ -334,5 +374,18 @@ class ConfigLoader:
             gradient_color2=gradient_color2,
             gradient_direction=gradient_direction
         )
+
+        # Parse shape configurations
+        shape_configs = []
+        shapes = display_data.get('shapes', [])
+        for shape_data in shapes:
+            if shape_data.get('enabled', True):
+                try:
+                    shape_configs.append(self._parse_shape_config(shape_data))
+                except Exception as e:
+                    self.logger.error(f"Failed to parse shape configuration: {e}")
+
+        if shape_configs:
+            config.shape_configs = shape_configs
 
         return config

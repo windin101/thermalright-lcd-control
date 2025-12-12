@@ -363,6 +363,17 @@ class WidgetPalette(QWidget):
         graph_section.add_item("arc_graph", "Arc", "◔", "#16a085")
         self.sections_layout.addWidget(graph_section)
         
+        # Shape Widgets Section
+        shape_section = WidgetPaletteSection("Shapes")
+        shape_section.add_item("shape_rectangle", "Rect", "▢", "#95a5a6")
+        shape_section.add_item("shape_rounded_rect", "Rounded", "▢", "#7f8c8d")
+        shape_section.add_item("shape_circle", "Circle", "○", "#9b59b6")
+        shape_section.add_item("shape_ellipse", "Ellipse", "⬭", "#8e44ad")
+        shape_section.add_item("shape_line", "Line", "─", "#34495e")
+        shape_section.add_item("shape_triangle", "Triangle", "△", "#e67e22")
+        shape_section.add_item("shape_arrow", "Arrow", "→", "#27ae60")
+        self.sections_layout.addWidget(shape_section)
+        
         # Add stretch at bottom
         self.sections_layout.addStretch()
     

@@ -229,6 +229,41 @@ class CircularGraphConfig:
             ]
 
 
+class ShapeType(Enum):
+    """Supported shape types for decorative elements"""
+    RECTANGLE = "rectangle"
+    CIRCLE = "circle"
+    ELLIPSE = "ellipse"
+    LINE = "line"
+    TRIANGLE = "triangle"
+    ARROW = "arrow"
+    ROUNDED_RECTANGLE = "rounded_rectangle"
+
+
+@dataclass
+class ShapeConfig:
+    """Configuration for decorative shape elements (borders, separators, backgrounds)"""
+    shape_type: ShapeType = ShapeType.RECTANGLE
+    position: Tuple[int, int] = (0, 0)  # (x, y) top-left corner
+    width: int = 100  # Width in pixels (for line: length)
+    height: int = 50  # Height in pixels (for line: thickness)
+    rotation: int = 0  # Rotation angle in degrees (0-359)
+    
+    # Fill settings
+    filled: bool = True  # True = solid fill, False = border only (transparent center)
+    fill_color: Tuple[int, int, int, int] = (100, 100, 100, 128)  # RGBA - semi-transparent gray default
+    
+    # Border settings
+    border_color: Tuple[int, int, int, int] = (255, 255, 255, 255)  # RGBA - white default
+    border_width: int = 2  # Border thickness in pixels (0 = no border)
+    
+    # Shape-specific settings
+    corner_radius: int = 0  # For ROUNDED_RECTANGLE only
+    arrow_head_size: int = 10  # For ARROW only - size of arrow head
+    
+    enabled: bool = True
+
+
 @dataclass
 class DisplayConfig:
     """Complete display configuration"""
@@ -280,6 +315,9 @@ class DisplayConfig:
 
     # Circular graph configuration
     circular_configs: List['CircularGraphConfig'] = None
+
+    # Shape configuration (decorative elements)
+    shape_configs: List['ShapeConfig'] = None
 
     # LCD refresh interval in seconds (how often stats update)
     refresh_interval: float = 1.0

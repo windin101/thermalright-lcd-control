@@ -25,6 +25,10 @@ class DisplayGenerator:
 
         self.logger.info(f"DisplayGenerator initialized with background type: {self.config.background_type}")
         self.logger.info(f"Global font: {self.config.global_font_path or 'Default system font'}")
+        # Log presence of shapes if any
+        if getattr(self.config, 'shape_configs', None):
+            count = len(self.config.shape_configs)
+            self.logger.info(f"DisplayGenerator: Loaded {count} shape(s) for rendering")
 
     def _add_foreground_image(self, background: Image.Image) -> Image.Image:
         """Add foreground image to background"""
@@ -90,27 +94,32 @@ class DisplayGenerator:
         # Create drawing object
         draw = ImageDraw.Draw(result)
 
-        # Draw metrics
-        self.text_renderer.render_metrics(draw, result, metrics, self.config.metrics_configs)
+        # Draw bar graphs first (under arcs & shapes)
+        if self.config.bar_configs:
+            self.logger.debug(f"Rendering {len(self.config.bar_configs)} bar graphs in frame")
+            self.text_renderer.render_bar_graphs(draw, result, metrics, self.config.bar_configs)
 
-        # Draw date (dd/mm format)
-        self.text_renderer.render_date(draw, result, self.config.date_config)
+        # Draw circular graphs (arcs) - mid layer
+        if self.config.circular_configs:
+            self.logger.debug(f"Rendering {len(self.config.circular_configs)} circular graphs in frame")
+            self.text_renderer.render_circular_graphs(draw, result, metrics, self.config.circular_configs)
 
-        # Draw time (HH:MM format)
-        self.text_renderer.render_time(draw, result, self.config.time_config)
+        # Draw shapes after bars & circular graphs (so shapes sit between arcs/bars and text)
+        if self.config.shape_configs:
+            self.logger.debug(f"Rendering {len(self.config.shape_configs)} shapes in frame")
+            self.text_renderer.render_shapes(draw, result, self.config.shape_configs)
 
-        # Draw custom text widgets
+        # Draw custom text widgets (front layer, behind metrics/date/time if they are configured as topmost)
         if self.config.text_configs:
             for text_config in self.config.text_configs:
                 self.text_renderer.render_custom_text(draw, result, text_config)
 
-        # Draw bar graphs
-        if self.config.bar_configs:
-            self.text_renderer.render_bar_graphs(draw, result, metrics, self.config.bar_configs)
+        # Draw metrics (above text)
+        self.text_renderer.render_metrics(draw, result, metrics, self.config.metrics_configs)
 
-        # Draw circular graphs
-        if self.config.circular_configs:
-            self.text_renderer.render_circular_graphs(draw, result, metrics, self.config.circular_configs)
+        # Draw date (dd/mm format) and time (HH:MM) last (topmost)
+        self.text_renderer.render_date(draw, result, self.config.date_config)
+        self.text_renderer.render_time(draw, result, self.config.time_config)
 
         convert = result.convert('RGB')
 

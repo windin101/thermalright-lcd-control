@@ -151,6 +151,13 @@ def _get_metrics_cache():
         _metrics_cache.start()
     return _metrics_cache
 
+def cleanup_metrics_cache():
+    """Stop and cleanup the metrics cache - call on app close"""
+    global _metrics_cache
+    if _metrics_cache is not None:
+        _metrics_cache.stop()
+        _metrics_cache = None
+
 # Legacy functions for backward compatibility
 _cpu_metrics_instance = None
 _gpu_metrics_instance = None
@@ -232,6 +239,8 @@ class ResizeHandle(QWidget):
     
     # Signals
     resizeRequested = Signal(str, int, int)  # handle_type, delta_x, delta_y
+    dragStarted = Signal()
+    dragEnded = Signal()
     
     HANDLE_SIZE = 10
     
@@ -245,7 +254,9 @@ class ResizeHandle(QWidget):
         super().__init__(parent)
         self._handle_type = handle_type
         self._dragging = False
+        self._armed = False
         self._drag_start = QPoint()
+        self._drag_start_global = None
         
         self.setFixedSize(self.HANDLE_SIZE, self.HANDLE_SIZE)
         self.setFocusPolicy(Qt.NoFocus)  # Don't steal focus from the widget
@@ -273,11 +284,25 @@ class ResizeHandle(QWidget):
     
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._dragging = True
+            # Arm the handle, but only start dragging once user moves a bit
+            self._armed = True
             self._drag_start = event.globalPos()
+            self._drag_start_global = event.globalPos()
             event.accept()
+            try:
+                self.dragStarted.emit()
+            except Exception:
+                pass
     
     def mouseMoveEvent(self, event):
+        if self._armed and not self._dragging:
+            # Check if user moved area exceeds threshold to start actual dragging
+            threshold = 6
+            moved = event.globalPos() - self._drag_start_global
+            if abs(moved.x()) >= threshold or abs(moved.y()) >= threshold:
+                self._dragging = True
+                # reset _drag_start to current to avoid jumps
+                self._drag_start = event.globalPos()
         if self._dragging:
             delta = event.globalPos() - self._drag_start
             self._drag_start = event.globalPos()
@@ -287,7 +312,13 @@ class ResizeHandle(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._dragging = False
+            self._armed = False
+            self._drag_start_global = None
             event.accept()
+            try:
+                self.dragEnded.emit()
+            except Exception:
+                pass
 
 
 class RotationHandle(QWidget):
@@ -299,6 +330,8 @@ class RotationHandle(QWidget):
     
     # Signal emitted when rotation is requested
     rotationRequested = Signal(float)  # angle in degrees
+    dragStarted = Signal()
+    dragEnded = Signal()
     
     HANDLE_SIZE = 14
     STEM_LENGTH = 25  # Distance from widget top to handle center
@@ -306,7 +339,9 @@ class RotationHandle(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._dragging = False
+        self._armed = False
         self._drag_start = QPoint()
+        self._drag_start_global = None
         self._widget_center = QPoint()  # Center of the target widget
         
         self.setFixedSize(self.HANDLE_SIZE, self.HANDLE_SIZE)
@@ -335,11 +370,24 @@ class RotationHandle(QWidget):
     
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._dragging = True
+            # Arm rotation; start rotation once user has moved beyond threshold
+            self._armed = True
             self._drag_start = event.globalPos()
+            self._drag_start_global = event.globalPos()
             event.accept()
+            try:
+                self.dragStarted.emit()
+            except Exception:
+                pass
     
     def mouseMoveEvent(self, event):
+        if self._armed and not self._dragging:
+            threshold = 6
+            moved = event.globalPos() - self._drag_start_global
+            if abs(moved.x()) >= threshold or abs(moved.y()) >= threshold:
+                self._dragging = True
+                # reset start to avoid sudden jumps
+                self._drag_start = event.globalPos()
         if self._dragging:
             # Calculate angle from widget center to current mouse position
             # Convert global pos to parent coordinates
@@ -375,6 +423,10 @@ class RotationHandle(QWidget):
         if event.button() == Qt.LeftButton:
             self._dragging = False
             event.accept()
+            try:
+                self.dragEnded.emit()
+            except Exception:
+                pass
 
 
 class ResizeHandleManager(QWidget):
@@ -387,6 +439,8 @@ class ResizeHandleManager(QWidget):
     # Emitted when target widget's size/font changes
     sizeChanged = Signal(object, str, object)  # target_widget, property_name, new_value
     rotationChanged = Signal(object, float)  # target_widget, angle in degrees
+    resizeDragStarted = Signal()
+    resizeDragEnded = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -401,11 +455,15 @@ class ResizeHandleManager(QWidget):
         for ht in handle_types:
             handle = ResizeHandle(parent, ht)
             handle.resizeRequested.connect(self._on_resize_requested)
+            handle.dragStarted.connect(self._on_handle_drag_started)
+            handle.dragEnded.connect(self._on_handle_drag_ended)
             self._handles[ht] = handle
         
         # Create rotation handle (for bar/arc widgets)
         self._rotation_handle = RotationHandle(parent)
         self._rotation_handle.rotationRequested.connect(self._on_rotation_requested)
+        self._rotation_handle.dragStarted.connect(self._on_handle_drag_started)
+        self._rotation_handle.dragEnded.connect(self._on_handle_drag_ended)
         
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.hide()
@@ -457,12 +515,26 @@ class ResizeHandleManager(QWidget):
             handle.show()
             handle.raise_()
         
-        # Only bar and arc widgets get rotation handle
-        if class_name in ('BarGraphWidget', 'CircularGraphWidget'):
+        # Only bar, arc, and shape widgets get rotation handle
+        if class_name in ('BarGraphWidget', 'CircularGraphWidget', 'ShapeWidget'):
             self._rotation_handle.show()
             self._rotation_handle.raise_()
         else:
             self._rotation_handle.hide()
+
+    def _on_handle_drag_started(self):
+        """Called when a resize/rotation handle starts being dragged"""
+        try:
+            self.resizeDragStarted.emit()
+        except Exception:
+            pass
+
+    def _on_handle_drag_ended(self):
+        """Called when a resize/rotation handle finishes being dragged"""
+        try:
+            self.resizeDragEnded.emit()
+        except Exception:
+            pass
     
     def _update_handle_positions(self):
         """Position handles around the target widget.
@@ -520,6 +592,28 @@ class ResizeHandleManager(QWidget):
                 'bottom-left': (center_x - half_size_arc - half_size, center_y + half_size_arc - half_size),
                 'bottom-right': (center_x + half_size_arc - half_size, center_y + half_size_arc - half_size),
             }
+        elif class_name == 'ShapeWidget':
+            # Get base dimensions (unrotated) and apply preview scale
+            base_width = int(self._target.get_width() * self._preview_scale)
+            base_height = int(self._target.get_height() * self._preview_scale)
+            border_padding = 4
+            
+            # Widget center stays the same
+            center_x = target_rect.center().x()
+            center_y = target_rect.center().y()
+            
+            # Calculate corners based on unrotated dimensions from center
+            left = center_x - base_width // 2 - border_padding
+            right = center_x + base_width // 2 + border_padding
+            top = center_y - base_height // 2 - border_padding
+            bottom = center_y + base_height // 2 + border_padding
+            
+            positions = {
+                'top-left': (left - half_size, top - half_size),
+                'top-right': (right - half_size, top - half_size),
+                'bottom-left': (left - half_size, bottom - half_size),
+                'bottom-right': (right - half_size, bottom - half_size),
+            }
         else:
             # For other widgets, use the actual geometry
             positions = {
@@ -550,6 +644,9 @@ class ResizeHandleManager(QWidget):
                 base_radius = int(self._target.get_radius() * self._preview_scale)
                 base_thickness = int(self._target.get_thickness() * self._preview_scale)
                 orbit_radius = base_radius + base_thickness // 2 + stem_length + 4
+            elif class_name == 'ShapeWidget':
+                base_height = int(self._target.get_height() * self._preview_scale)
+                orbit_radius = base_height // 2 + stem_length + 4
             else:
                 orbit_radius = stem_length
             
@@ -571,8 +668,8 @@ class ResizeHandleManager(QWidget):
         
         class_name = self._target.__class__.__name__
         
-        # Only bar and arc widgets support rotation
-        if class_name in ('BarGraphWidget', 'CircularGraphWidget'):
+        # Bar, arc, and shape widgets support rotation
+        if class_name in ('BarGraphWidget', 'CircularGraphWidget', 'ShapeWidget'):
             # Round to nearest degree for cleaner values
             rounded_angle = round(angle)
             self._target.set_rotation(rounded_angle)
@@ -591,7 +688,7 @@ class ResizeHandleManager(QWidget):
         class_name = self._target.__class__.__name__
         
         # For text widgets, use raw pixel deltas (font size is UI interaction)
-        # For bar/arc widgets, convert to device coordinates
+        # For bar/arc/shape widgets, convert to device coordinates
         if class_name in ('DraggableWidget', 'MetricWidget', 'TimeWidget', 'DateWidget', 'FreeTextWidget'):
             self._resize_text_widget(handle_type, delta_x, delta_y)
         else:
@@ -603,6 +700,8 @@ class ResizeHandleManager(QWidget):
                 self._resize_bar_widget(handle_type, device_delta_x, device_delta_y)
             elif class_name == 'CircularGraphWidget':
                 self._resize_arc_widget(handle_type, device_delta_x, device_delta_y)
+            elif class_name == 'ShapeWidget':
+                self._resize_shape_widget(handle_type, device_delta_x, device_delta_y)
         
         # Update handle positions after resize
         self._update_handle_positions()
@@ -663,6 +762,33 @@ class ResizeHandleManager(QWidget):
         if new_radius != current_radius:
             self._target.set_radius(new_radius)
             self.sizeChanged.emit(self._target, 'radius', new_radius)
+    
+    def _resize_shape_widget(self, handle_type: str, delta_x: int, delta_y: int):
+        """Resize a shape widget"""
+        current_width = self._target.get_width()
+        current_height = self._target.get_height()
+        
+        # Calculate new dimensions based on handle
+        new_width = current_width
+        new_height = current_height
+        
+        if 'right' in handle_type:
+            new_width = max(5, current_width + delta_x)
+        elif 'left' in handle_type:
+            new_width = max(5, current_width - delta_x)
+        
+        if 'bottom' in handle_type:
+            new_height = max(5, current_height + delta_y)
+        elif 'top' in handle_type:
+            new_height = max(5, current_height - delta_y)
+        
+        # Apply changes
+        if new_width != current_width:
+            self._target.set_width(new_width)
+            self.sizeChanged.emit(self._target, 'width', new_width)
+        if new_height != current_height:
+            self._target.set_height(new_height)
+            self.sizeChanged.emit(self._target, 'height', new_height)
     
     def _resize_text_widget(self, handle_type: str, delta_x: int, delta_y: int):
         """Resize a text widget by changing font size.
@@ -1898,6 +2024,10 @@ class TextStyleConfig:
 class DraggableWidget(QLabel):
     """Base class for draggable overlay widgets"""
     positionChanged = Signal(QPoint)
+    # Emit when user starts dragging the widget (left-mouse down)
+    dragStarted = Signal()
+    # Emit when user finishes dragging the widget (left-mouse release)
+    dragEnded = Signal()
     doubleClicked = Signal(object, QPoint)  # widget, global_pos - for property popup
     
     # Class-level snap-to-grid settings (shared by all widgets)
@@ -2067,6 +2197,10 @@ class DraggableWidget(QLabel):
             self.setFocus()
             self._is_selected = True
             self.update_display()  # Update style to show drag border
+            try:
+                self.dragStarted.emit()
+            except Exception:
+                pass
 
     def focusInEvent(self, event):
         """Widget gained focus - show selection"""
@@ -2195,6 +2329,10 @@ class DraggableWidget(QLabel):
                 self.setToolTip(f"Position: ({snapped_pos.x()}, {snapped_pos.y()})")
             
             self.update_display()  # Update style to remove drag border
+            try:
+                self.dragEnded.emit()
+            except Exception:
+                pass
 
     def enterEvent(self, event):
         """Change cursor and show hover border"""
@@ -2237,6 +2375,8 @@ class DraggableForegroundWidget(QLabel):
     The actual image rendering is handled by the preview manager.
     """
     positionChanged = Signal(int, int)
+    dragStarted = Signal()
+    dragEnded = Signal()
 
     def __init__(self, parent=None, width=320, height=240):
         super().__init__(parent)
@@ -2348,6 +2488,10 @@ class DraggableForegroundWidget(QLabel):
             self.drag_start_position = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
             self.setStyleSheet(self._dragging_style)
+            try:
+                self.dragStarted.emit()
+            except Exception:
+                pass
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle dragging movement"""
@@ -2400,6 +2544,10 @@ class DraggableForegroundWidget(QLabel):
             else:
                 # Emit final position on release
                 self.positionChanged.emit(self.pos().x(), self.pos().y())
+            try:
+                self.dragEnded.emit()
+            except Exception:
+                pass
 
     def enterEvent(self, event):
         """Change cursor and show border on hover"""
@@ -3118,13 +3266,13 @@ class BarGraphWidget(QLabel):
         """
         import math
         border_padding = 4
-        scaled_width = int(self._width * self._preview_scale)
-        scaled_height = int(self._height * self._preview_scale)
-        diagonal = int(math.sqrt(scaled_width**2 + scaled_height**2))
+        scaled_width = int(round(self._width * self._preview_scale))
+        scaled_height = int(round(self._height * self._preview_scale))
+        diagonal = int(math.ceil(math.sqrt(scaled_width**2 + scaled_height**2)))
         total_size = diagonal + border_padding * 2
         # Padding on each side is half the difference between total and scaled size
-        padding_x = (total_size - scaled_width) // 2
-        padding_y = (total_size - scaled_height) // 2
+        padding_x = int(round((total_size - scaled_width) / 2.0))
+        padding_y = int(round((total_size - scaled_height) / 2.0))
         return (padding_x, padding_y)
 
     def _set_initial_position(self):
@@ -3336,6 +3484,11 @@ class BarGraphWidget(QLabel):
             self._dragging = False
             self.setCursor(Qt.OpenHandCursor)
             self.update_display()
+            # Clear global drag state
+            if hasattr(self, '_drag_start_global'):
+                del self._drag_start_global
+            if hasattr(self, '_orig_pos'):
+                del self._orig_pos
             event.accept()
         else:
             super().mouseReleaseEvent(event)
@@ -3621,13 +3774,13 @@ class CircularGraphWidget(QLabel):
         of the actual arc content within the widget.
         """
         border_padding = 4
-        scaled_radius = int(self._radius * self._preview_scale)
-        scaled_thickness = int(self._thickness * self._preview_scale)
+        scaled_radius = int(round(self._radius * self._preview_scale))
+        scaled_thickness = int(round(self._thickness * self._preview_scale))
         diameter = scaled_radius * 2
         arc_bounds_size = diameter + scaled_thickness
         total_size = arc_bounds_size + border_padding * 2
         # Padding on each side is half the difference between total and bounds size
-        padding = (total_size - arc_bounds_size) // 2
+        padding = int(round((total_size - arc_bounds_size) / 2.0))
         return (padding, padding)
 
     def _set_initial_position(self):
@@ -4073,3 +4226,734 @@ class CircularGraphWidget(QLabel):
         center_x = pos.x() + total_size // 2
         center_y = pos.y() + total_size // 2
         return (center_x, center_y)
+
+
+class ShapeWidget(DraggableWidget):
+    """Draggable decorative shape widget for borders, separators, backgrounds"""
+    
+    positionChanged = Signal(QPoint)
+    doubleClicked = Signal(object, QPoint)  # widget, global_pos - for property popup
+    
+    # Shape type constants (matching ShapeType enum values)
+    RECTANGLE = "rectangle"
+    CIRCLE = "circle"
+    ELLIPSE = "ellipse"
+    LINE = "line"
+    TRIANGLE = "triangle"
+    ARROW = "arrow"
+    ROUNDED_RECTANGLE = "rounded_rectangle"
+    
+    def __init__(self, parent=None, widget_name="shape1"):
+        super().__init__(parent)
+        self.name = widget_name
+        self.enabled = False
+        self._dragging = False
+        self._is_hovered = False
+        self._is_selected = False
+        self._preview_scale = 1.0
+        
+        # Enable mouse tracking and transparent background
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.OpenHandCursor)
+        self._drag_start = QPoint()
+        
+        # Shape properties (device coordinates)
+        self._shape_type = self.RECTANGLE
+        self._width = 80
+        self._height = 50
+        self._rotation = 0
+        
+        # Fill settings
+        self._filled = True
+        self._fill_color = QColor(100, 100, 100, 128)  # Semi-transparent gray
+        
+        # Border settings
+        self._border_color = QColor(255, 255, 255, 255)  # White
+        self._border_width = 2
+        
+        # Shape-specific settings
+        self._corner_radius = 0  # For rounded rectangle
+        self._arrow_head_size = 10  # For arrow
+        
+        self._set_initial_position()
+        self.update_display()
+    
+    def set_preview_scale(self, scale: float):
+        """Set the preview scale factor and update display"""
+        self._preview_scale = scale
+        self.update_display()
+    
+    def _get_rotation_padding(self) -> tuple[int, int]:
+        """Calculate padding offset due to diagonal-based sizing"""
+        border_padding = 4
+        scaled_width = int(round(self._width * self._preview_scale))
+        scaled_height = int(round(self._height * self._preview_scale))
+        # Use ceil for diagonal so the GUI matches the generator's allocation
+        diagonal = int(math.ceil(math.sqrt(scaled_width**2 + scaled_height**2)))
+        total_size = diagonal + border_padding * 2
+        # Use rounding to distribute padding symmetrically (avoid 1px drift)
+        padding_x = int(round((total_size - scaled_width) / 2.0))
+        padding_y = int(round((total_size - scaled_height) / 2.0))
+        return (padding_x, padding_y)
+    
+    def _set_initial_position(self):
+        """Set initial position based on widget name"""
+        border_padding = 4
+        positions = {
+            "shape1": (20, 20),
+            "shape2": (120, 20),
+            "shape3": (20, 100),
+            "shape4": (120, 100)
+        }
+        if self.name in positions:
+            x, y = positions[self.name]
+            self.move(x - border_padding, y - border_padding)
+    
+    def set_enabled(self, enabled: bool):
+        """Enable or disable the widget"""
+        self.enabled = enabled
+        self.update_display()
+    
+    def update_display(self):
+        """Update the visual display of the shape"""
+        if not self.enabled:
+            self.hide()
+            return
+        
+        border_padding = 4
+        # Use rounded scaled sizes to avoid truncation drift
+        scaled_width = int(round(self._width * self._preview_scale))
+        scaled_height = int(round(self._height * self._preview_scale))
+
+        # Use diagonal-based size so rotation fits within and match generator (ceil)
+        diagonal = int(math.ceil(math.sqrt(scaled_width**2 + scaled_height**2)))
+        total_size = diagonal + border_padding * 2
+        
+        # Create pixmap
+        pixmap = QPixmap(total_size, total_size)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Apply rotation
+        painter.save()
+        painter.translate(total_size / 2, total_size / 2)
+        painter.rotate(self._rotation)
+        painter.translate(-scaled_width / 2, -scaled_height / 2)
+        
+        # Draw selection border
+        if self._dragging:
+            painter.setBrush(QColor(231, 76, 60, 50))
+            pen = QPen(QColor(231, 76, 60, 255))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        elif self._is_selected:
+            painter.setBrush(QColor(46, 204, 113, 40))
+            pen = QPen(QColor(46, 204, 113, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        elif self._is_hovered:
+            painter.setBrush(QColor(52, 152, 219, 40))
+            pen = QPen(QColor(52, 152, 219, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(-2, -2, scaled_width + 4, scaled_height + 4)
+        
+        # Draw the shape at origin
+        self._draw_shape(painter, 0, 0, scaled_width, scaled_height)
+        
+        painter.restore()
+        painter.end()
+        
+        self.setPixmap(pixmap)
+        self.setFixedSize(total_size, total_size)
+        self.show()
+    
+    def _draw_shape(self, painter: QPainter, x: int, y: int, w: int, h: int):
+        """Draw the shape based on type"""
+        # Set fill
+        if self._filled:
+            painter.setBrush(self._fill_color)
+        else:
+            painter.setBrush(Qt.NoBrush)
+        
+        # Set border
+        if self._border_width > 0:
+            pen = QPen(self._border_color)
+            pen.setWidth(max(1, int(self._border_width * self._preview_scale)))
+            painter.setPen(pen)
+        else:
+            painter.setPen(Qt.NoPen)
+        
+        scaled_corner_radius = int(self._corner_radius * self._preview_scale)
+        scaled_arrow_head = int(self._arrow_head_size * self._preview_scale)
+        
+        if self._shape_type == self.RECTANGLE:
+            painter.drawRect(x, y, w, h)
+        
+        elif self._shape_type == self.ROUNDED_RECTANGLE:
+            radius = min(scaled_corner_radius, w // 2, h // 2)
+            painter.drawRoundedRect(x, y, w, h, radius, radius)
+        
+        elif self._shape_type == self.CIRCLE:
+            # Circle uses width as diameter, centered
+            diameter = min(w, h)
+            cx = x + w // 2
+            cy = y + h // 2
+            r = diameter // 2
+            painter.drawEllipse(cx - r, cy - r, diameter, diameter)
+        
+        elif self._shape_type == self.ELLIPSE:
+            painter.drawEllipse(x, y, w, h)
+        
+        elif self._shape_type == self.LINE:
+            # Treat line as a thin rectangle to match device rendering
+            # Draw filled line rectangle or border-only rectangle based on settings
+            if self._filled:
+                # Use fill color to draw rectangle
+                painter.setBrush(self._fill_color)
+                pen = QPen(self._border_color if self._border_width > 0 else Qt.NoPen)
+                if self._border_width > 0:
+                    pen.setWidth(max(1, int(self._border_width * self._preview_scale)))
+                painter.setPen(pen)
+                painter.drawRect(x, y, w, h)
+            else:
+                # Border-only: draw rectangle outline using border_color/width
+                if self._border_width > 0:
+                    pen = QPen(self._border_color)
+                    pen.setWidth(max(1, int(self._border_width * self._preview_scale)))
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(x, y, w, h)
+        
+        elif self._shape_type == self.TRIANGLE:
+            # Isoceles triangle pointing up
+            from PySide6.QtGui import QPolygon
+            points = QPolygon([
+                QPoint(x + w // 2, y),      # Top center
+                QPoint(x, y + h),            # Bottom left
+                QPoint(x + w, y + h)         # Bottom right
+            ])
+            painter.drawPolygon(points)
+        
+        elif self._shape_type == self.ARROW:
+            # Arrow pointing right
+            line_color = self._border_color if self._border_width > 0 else self._fill_color
+            pen = QPen(line_color)
+            pen.setWidth(max(1, int(self._border_width * self._preview_scale)) if self._border_width > 0 else 2)
+            painter.setPen(pen)
+            
+            y_center = y + h // 2
+            arrow_body_end = x + w - scaled_arrow_head
+            
+            # Main line
+            painter.drawLine(x, y_center, arrow_body_end, y_center)
+            
+            # Arrowhead
+            from PySide6.QtGui import QPolygon
+            arrow_points = QPolygon([
+                QPoint(x + w, y_center),                         # Tip
+                QPoint(arrow_body_end, y_center - scaled_arrow_head // 2),  # Top
+                QPoint(arrow_body_end, y_center + scaled_arrow_head // 2)   # Bottom
+            ])
+            painter.setBrush(line_color)
+            painter.drawPolygon(arrow_points)
+    
+    # Mouse event handlers
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self.update_display()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        self.update_display()
+        super().leaveEvent(event)
+    
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self.enabled:
+            # Use global-delta drag to make moving shapes intuitive when rotated.
+            # Call base to set dragging state and emit dragStarted
+            super().mousePressEvent(event)
+            # Also keep local dragging state for visual selection
+            self._dragging = True
+            self._drag_start = event.pos()
+            self._drag_start_global = event.globalPos()
+            self._orig_pos = self.pos()
+            self._is_selected = True
+            self.update_display()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._dragging and self.enabled:
+            delta = event.globalPos() - getattr(self, '_drag_start_global', event.globalPos())
+            orig = getattr(self, '_orig_pos', self.pos())
+            new_pos = QPoint(orig.x() + delta.x(), orig.y() + delta.y())
+            if self.parent():
+                parent_rect = self.parent().rect()
+                widget_rect = self.rect()
+                pad_x, pad_y = self._get_rotation_padding()
+                new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+                new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
+            self.move(new_pos)
+            self.positionChanged.emit(new_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            # Clear local dragging state and notify base class (which emits dragEnded)
+            self._dragging = False
+            super().mouseReleaseEvent(event)
+            # Ensure cursor and visuals are consistent
+            self.setCursor(Qt.OpenHandCursor)
+            self.update_display()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def focusInEvent(self, event):
+        self._is_selected = True
+        self.update_display()
+        super().focusInEvent(event)
+    
+    def focusOutEvent(self, event):
+        self._is_selected = False
+        self.update_display()
+        super().focusOutEvent(event)
+    
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts"""
+        from PySide6.QtCore import Qt as QtCore
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        if key in (QtCore.Key_Delete, QtCore.Key_Backspace):
+            self.set_enabled(False)
+            self.positionChanged.emit(self.pos())
+            return
+        
+        nudge = 10 if modifiers & QtCore.ShiftModifier else 1
+        new_pos = self.pos()
+        
+        if key == QtCore.Key_Left:
+            new_pos.setX(new_pos.x() - nudge)
+        elif key == QtCore.Key_Right:
+            new_pos.setX(new_pos.x() + nudge)
+        elif key == QtCore.Key_Up:
+            new_pos.setY(new_pos.y() - nudge)
+        elif key == QtCore.Key_Down:
+            new_pos.setY(new_pos.y() + nudge)
+        else:
+            super().keyPressEvent(event)
+            return
+        
+        if self.parent():
+            parent_rect = self.parent().rect()
+            widget_rect = self.rect()
+            pad_x, pad_y = self._get_rotation_padding()
+            new_pos.setX(max(-pad_x, min(new_pos.x(), parent_rect.width() - widget_rect.width() + pad_x)))
+            new_pos.setY(max(-pad_y, min(new_pos.y(), parent_rect.height() - widget_rect.height() + pad_y)))
+        
+        self.move(new_pos)
+        self.positionChanged.emit(new_pos)
+    
+    def contextMenuEvent(self, event):
+        """Show right-click context menu"""
+        from PySide6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QMenu::item { padding: 5px 20px; }
+            QMenu::item:selected { background-color: #3498db; }
+        """)
+        
+        if self.enabled:
+            disable_action = menu.addAction("Disable")
+            disable_action.triggered.connect(lambda: self.set_enabled(False))
+        else:
+            enable_action = menu.addAction("Enable")
+            enable_action.triggered.connect(lambda: self.set_enabled(True))
+        
+        menu.exec(event.globalPos())
+    
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self.enabled:
+            self.doubleClicked.emit(self, event.globalPos())
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+    
+    # Getters and setters
+    def get_shape_type(self) -> str:
+        return self._shape_type
+    
+    def set_shape_type(self, shape_type: str):
+        self._shape_type = shape_type
+        self.update_display()
+    
+    def get_width(self) -> int:
+        return self._width
+    
+    def set_width(self, width: int):
+        self._width = max(10, width)
+        self.update_display()
+    
+    def get_height(self) -> int:
+        return self._height
+    
+    def set_height(self, height: int):
+        self._height = max(5, height)
+        self.update_display()
+    
+    def get_rotation(self) -> int:
+        return self._rotation
+    
+    def set_rotation(self, angle: int):
+        self._rotation = angle % 360
+        self.update_display()
+    
+    def get_filled(self) -> bool:
+        return self._filled
+    
+    def set_filled(self, filled: bool):
+        self._filled = filled
+        self.update_display()
+    
+    def get_fill_color(self) -> QColor:
+        return self._fill_color
+    
+    def set_fill_color(self, color: QColor):
+        self._fill_color = color
+        self.update_display()
+    
+    def get_border_color(self) -> QColor:
+        return self._border_color
+    
+    def set_border_color(self, color: QColor):
+        self._border_color = color
+        self.update_display()
+    
+    def get_border_width(self) -> int:
+        return self._border_width
+    
+    def set_border_width(self, width: int):
+        self._border_width = max(0, width)
+        self.update_display()
+    
+    def get_corner_radius(self) -> int:
+        return self._corner_radius
+    
+    def set_corner_radius(self, radius: int):
+        self._corner_radius = max(0, radius)
+        self.update_display()
+    
+    def get_arrow_head_size(self) -> int:
+        return self._arrow_head_size
+    
+    def set_arrow_head_size(self, size: int):
+        self._arrow_head_size = max(5, size)
+        self.update_display()
+    
+    def get_position(self) -> tuple:
+        """Get position adjusted for border padding"""
+        border_padding = 4
+        pos = self.pos()
+        return (pos.x() + border_padding, pos.y() + border_padding)
+
+
+class ShapePropertyPopup(PropertyPopup):
+    """Property popup for ShapeWidget - allows quick editing of shape properties."""
+    
+    SHAPE_OPTIONS = [
+        ("Rectangle", "rectangle"),
+        ("Circle", "circle"),
+        ("Ellipse", "ellipse"),
+        ("Line", "line"),
+        ("Triangle", "triangle"),
+        ("Arrow", "arrow"),
+        ("Rounded Rect", "rounded_rectangle"),
+    ]
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        """Create the popup UI"""
+        from PySide6.QtWidgets import (QVBoxLayout, QFormLayout, QHBoxLayout, 
+                                        QComboBox, QSpinBox, QCheckBox, QPushButton,
+                                        QLabel, QWidget, QColorDialog)
+        
+        container = QWidget()
+        container.setObjectName("popupContainer")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
+        
+        # Title bar
+        layout.addLayout(self._create_title_bar("Shape Properties"))
+        
+        # Form layout for properties
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
+        
+        # Shape type selector
+        self._shape_combo = QComboBox()
+        for display_name, value in self.SHAPE_OPTIONS:
+            self._shape_combo.addItem(display_name, value)
+        self._shape_combo.currentIndexChanged.connect(self._on_shape_changed)
+        form.addRow("Shape:", self._shape_combo)
+        
+        # Size controls
+        size_layout = QHBoxLayout()
+        size_layout.setSpacing(4)
+        
+        self._width_spin = QSpinBox()
+        self._width_spin.setRange(5, 500)
+        self._width_spin.setSuffix(" px")
+        self._width_spin.valueChanged.connect(self._on_width_changed)
+        
+        self._height_spin = QSpinBox()
+        self._height_spin.setRange(5, 500)
+        self._height_spin.setSuffix(" px")
+        self._height_spin.valueChanged.connect(self._on_height_changed)
+        
+        size_layout.addWidget(QLabel("W:"))
+        size_layout.addWidget(self._width_spin)
+        size_layout.addWidget(QLabel("H:"))
+        size_layout.addWidget(self._height_spin)
+        form.addRow("Size:", size_layout)
+        
+        # Rotation
+        self._rotation_spin = QSpinBox()
+        self._rotation_spin.setRange(0, 359)
+        self._rotation_spin.setSuffix("°")
+        self._rotation_spin.valueChanged.connect(self._on_rotation_changed)
+        form.addRow("Rotation:", self._rotation_spin)
+        
+        # Fill color with filled checkbox
+        fill_layout = QHBoxLayout()
+        fill_layout.setSpacing(4)
+        
+        self._fill_color_btn = QPushButton()
+        self._fill_color_btn.setObjectName("colorButton")
+        self._fill_color_btn.setFixedSize(32, 20)
+        self._fill_color_btn.clicked.connect(self._on_fill_color_clicked)
+        
+        self._filled_check = QCheckBox("Filled")
+        self._filled_check.stateChanged.connect(self._on_filled_changed)
+        
+        fill_layout.addWidget(self._fill_color_btn)
+        fill_layout.addWidget(self._filled_check)
+        fill_layout.addStretch()
+        form.addRow("Fill:", fill_layout)
+        
+        # Border color and width
+        border_layout = QHBoxLayout()
+        border_layout.setSpacing(4)
+        
+        self._border_color_btn = QPushButton()
+        self._border_color_btn.setObjectName("colorButton")
+        self._border_color_btn.setFixedSize(32, 20)
+        self._border_color_btn.clicked.connect(self._on_border_color_clicked)
+        
+        self._border_width_spin = QSpinBox()
+        self._border_width_spin.setRange(0, 20)
+        self._border_width_spin.setSuffix(" px")
+        self._border_width_spin.valueChanged.connect(self._on_border_width_changed)
+        
+        border_layout.addWidget(self._border_color_btn)
+        border_layout.addWidget(QLabel("Width:"))
+        border_layout.addWidget(self._border_width_spin)
+        border_layout.addStretch()
+        form.addRow("Border:", border_layout)
+        
+        # Corner radius (for rounded rectangle)
+        self._corner_radius_label = QLabel("Radius:")
+        self._corner_radius_spin = QSpinBox()
+        self._corner_radius_spin.setRange(0, 100)
+        self._corner_radius_spin.setSuffix(" px")
+        self._corner_radius_spin.valueChanged.connect(self._on_corner_radius_changed)
+        form.addRow(self._corner_radius_label, self._corner_radius_spin)
+        
+        # Arrow head size (for arrow)
+        self._arrow_size_label = QLabel("Head Size:")
+        self._arrow_size_spin = QSpinBox()
+        self._arrow_size_spin.setRange(5, 50)
+        self._arrow_size_spin.setSuffix(" px")
+        self._arrow_size_spin.valueChanged.connect(self._on_arrow_size_changed)
+        form.addRow(self._arrow_size_label, self._arrow_size_spin)
+        
+        layout.addLayout(form)
+        
+        self.setFixedWidth(260)
+    
+    def _populate_fields(self):
+        """Populate fields from target ShapeWidget"""
+        if not self._target:
+            return
+        
+        # Block signals during population
+        self._shape_combo.blockSignals(True)
+        self._width_spin.blockSignals(True)
+        self._height_spin.blockSignals(True)
+        self._rotation_spin.blockSignals(True)
+        self._filled_check.blockSignals(True)
+        self._border_width_spin.blockSignals(True)
+        self._corner_radius_spin.blockSignals(True)
+        self._arrow_size_spin.blockSignals(True)
+        
+        # Set values
+        shape_type = self._target.get_shape_type()
+        index = self._shape_combo.findData(shape_type)
+        if index >= 0:
+            self._shape_combo.setCurrentIndex(index)
+        
+        self._width_spin.setValue(self._target.get_width())
+        self._height_spin.setValue(self._target.get_height())
+        self._rotation_spin.setValue(self._target.get_rotation())
+        self._filled_check.setChecked(self._target.get_filled())
+        self._border_width_spin.setValue(self._target.get_border_width())
+        self._corner_radius_spin.setValue(self._target.get_corner_radius())
+        self._arrow_size_spin.setValue(self._target.get_arrow_head_size())
+        
+        # Update color buttons
+        fill_color = self._target.get_fill_color()
+        self._fill_color_btn.setStyleSheet(
+            f"background-color: {fill_color.name()}; border: 1px solid #555;"
+        )
+        
+        border_color = self._target.get_border_color()
+        self._border_color_btn.setStyleSheet(
+            f"background-color: {border_color.name()}; border: 1px solid #555;"
+        )
+        
+        # Unblock signals
+        self._shape_combo.blockSignals(False)
+        self._width_spin.blockSignals(False)
+        self._height_spin.blockSignals(False)
+        self._rotation_spin.blockSignals(False)
+        self._filled_check.blockSignals(False)
+        self._border_width_spin.blockSignals(False)
+        self._corner_radius_spin.blockSignals(False)
+        self._arrow_size_spin.blockSignals(False)
+        
+        # Update visibility of conditional controls
+        self._update_conditional_controls()
+    
+    def _update_conditional_controls(self):
+        """Show/hide controls based on shape type"""
+        shape_type = self._shape_combo.currentData()
+        
+        # Corner radius only for rounded rectangle
+        is_rounded = shape_type == "rounded_rectangle"
+        self._corner_radius_label.setVisible(is_rounded)
+        self._corner_radius_spin.setVisible(is_rounded)
+        
+        # Arrow head size only for arrow
+        is_arrow = shape_type == "arrow"
+        self._arrow_size_label.setVisible(is_arrow)
+        self._arrow_size_spin.setVisible(is_arrow)
+        
+        self.adjustSize()
+    
+    def _on_shape_changed(self, index):
+        if self._target:
+            shape_type = self._shape_combo.currentData()
+            self._target.set_shape_type(shape_type)
+            # If switching to a line, default to a thin height for clarity
+            if shape_type == 'line':
+                self._target.set_height(6)
+            self.propertyChanged.emit(self._target, "shape_type", shape_type)
+            self._update_conditional_controls()
+    
+    def _on_width_changed(self, value):
+        if self._target:
+            self._target.set_width(value)
+            self.propertyChanged.emit(self._target, "width", value)
+    
+    def _on_height_changed(self, value):
+        if self._target:
+            self._target.set_height(value)
+            self.propertyChanged.emit(self._target, "height", value)
+    
+    def _on_rotation_changed(self, value):
+        if self._target:
+            self._target.set_rotation(value)
+            self.propertyChanged.emit(self._target, "rotation", value)
+    
+    def _on_filled_changed(self, state):
+        if self._target:
+            filled = state == Qt.Checked
+            self._target.set_filled(filled)
+            self.propertyChanged.emit(self._target, "filled", filled)
+    
+    def _on_border_width_changed(self, value):
+        if self._target:
+            self._target.set_border_width(value)
+            self.propertyChanged.emit(self._target, "border_width", value)
+    
+    def _on_corner_radius_changed(self, value):
+        if self._target:
+            self._target.set_corner_radius(value)
+            self.propertyChanged.emit(self._target, "corner_radius", value)
+    
+    def _on_arrow_size_changed(self, value):
+        if self._target:
+            self._target.set_arrow_head_size(value)
+            self.propertyChanged.emit(self._target, "arrow_head_size", value)
+    
+    def _on_fill_color_clicked(self):
+        if not self._target:
+            return
+        
+        from PySide6.QtWidgets import QColorDialog
+        self._color_dialog_open = True
+        current_color = self._target.get_fill_color()
+        color = QColorDialog.getColor(current_color, self, "Select Fill Color")
+        self._color_dialog_open = False
+        
+        if color.isValid():
+            self._target.set_fill_color(color)
+            self._fill_color_btn.setStyleSheet(
+                f"background-color: {color.name()}; border: 1px solid #555;"
+            )
+            self.propertyChanged.emit(self._target, "fill_color", color)
+    
+    def _on_border_color_clicked(self):
+        if not self._target:
+            return
+        
+        from PySide6.QtWidgets import QColorDialog
+        self._color_dialog_open = True
+        current_color = self._target.get_border_color()
+        color = QColorDialog.getColor(current_color, self, "Select Border Color")
+        self._color_dialog_open = False
+        
+        if color.isValid():
+            self._target.set_border_color(color)
+            self._border_color_btn.setStyleSheet(
+                f"background-color: {color.name()}; border: 1px solid #555;"
+            )
+            self.propertyChanged.emit(self._target, "border_color", color)

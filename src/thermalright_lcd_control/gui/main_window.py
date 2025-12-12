@@ -15,6 +15,7 @@ from thermalright_lcd_control.gui.tabs.themes_tab import ThemesTab
 from thermalright_lcd_control.gui.tabs.cpu_tab import CPUTab
 from thermalright_lcd_control.gui.tabs.gpu_tab import GPUTab
 from thermalright_lcd_control.gui.tabs.info_tab import InfoTab
+from thermalright_lcd_control.gui.tabs.shapes_tab import ShapesTab
 from thermalright_lcd_control.gui.utils.config_loader import load_config
 from thermalright_lcd_control.gui.widgets.draggable_widget import *
 from thermalright_lcd_control.gui.widgets.widget_palette import WidgetPalette
@@ -22,7 +23,7 @@ from thermalright_lcd_control.gui.widgets.drop_preview import DropPreviewWidget
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 from thermalright_lcd_control.device_controller.metrics.cpu_metrics import CpuMetrics
 from thermalright_lcd_control.device_controller.metrics.gpu_metrics import GpuMetrics
-from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig, CircularGraphConfig
+from thermalright_lcd_control.device_controller.display.config import DateConfig, TimeConfig, MetricConfig, TextConfig, LabelPosition, BarGraphConfig, CircularGraphConfig, ShapeConfig, ShapeType
 
 
 class MediaPreviewUI(QMainWindow):
@@ -67,6 +68,7 @@ class MediaPreviewUI(QMainWindow):
         self.text_widgets = {}  # Free text widgets
         self.bar_widgets = {}   # Bar graph widgets
         self.arc_widgets = {}   # Circular graph widgets
+        self.shape_widgets = {}  # Decorative shape widgets
         
         # Track currently loaded theme for save/update
         self.current_theme_path = None
@@ -246,6 +248,11 @@ class MediaPreviewUI(QMainWindow):
         self.foreground_widget = DraggableForegroundWidget(self.preview_widget, preview_width, preview_height)
         self.foreground_widget.set_preview_scale(self.preview_scale)
         self.foreground_widget.positionChanged.connect(self.on_foreground_dragged)
+        try:
+            self.foreground_widget.dragStarted.connect(lambda name='foreground': self._on_widget_drag_started(name))
+            self.foreground_widget.dragEnded.connect(lambda name='foreground': self._on_widget_drag_ended(name))
+        except Exception:
+            pass
 
         # Create grid overlay for snap-to-grid visualization
         self.grid_overlay = GridOverlayWidget(self.preview_widget)
@@ -257,11 +264,22 @@ class MediaPreviewUI(QMainWindow):
         self.resize_handle_manager.set_preview_scale(self.preview_scale)
         self.resize_handle_manager.sizeChanged.connect(self._on_widget_size_changed)
         self.resize_handle_manager.rotationChanged.connect(self._on_widget_rotation_changed)
+        # Throttle preview updates during resize/rotation operations
+        try:
+            self.resize_handle_manager.resizeDragStarted.connect(lambda: self._on_widget_drag_started('resize'))
+            self.resize_handle_manager.resizeDragEnded.connect(lambda: self._on_widget_drag_ended('resize'))
+        except Exception:
+            pass
 
         # Initialize preview manager with actual components (use base device dimensions)
         self.preview_manager = PreviewManager(self.config, self.preview_label, self.text_style)
         self.preview_manager.set_preview_scale(self.preview_scale)
         self.preview_manager.set_device_dimensions(self.base_device_width, self.base_device_height)
+        # Ensure overlay widgets stay on top after preview pixmap updates
+        try:
+            self.preview_manager.on_preview_updated = self._raise_overlay_widgets
+        except Exception:
+            pass
 
         # Add preview frame to container
         preview_container_layout.addWidget(self.preview_frame, 0, Qt.AlignHCenter)
@@ -361,6 +379,14 @@ class MediaPreviewUI(QMainWindow):
             widget.set_preview_scale(self.preview_scale)
             widget.move(new_x, new_y)
         
+        # Shape widgets - update scale and position
+        for widget in self.shape_widgets.values():
+            old_pos = widget.pos()
+            new_x = int(old_pos.x() * scale_ratio)
+            new_y = int(old_pos.y() * scale_ratio)
+            widget.set_preview_scale(self.preview_scale)
+            widget.move(new_x, new_y)
+        
         # Update resize handle manager scale and positions
         if hasattr(self, 'resize_handle_manager'):
             self.resize_handle_manager.set_preview_scale(self.preview_scale)
@@ -379,6 +405,11 @@ class MediaPreviewUI(QMainWindow):
         self.date_widget.apply_style(self.text_style)
         self.date_widget.set_enabled(True)
         self.date_widget.positionChanged.connect(lambda pos: self.on_widget_position_changed('date', pos))
+        try:
+            self.date_widget.dragStarted.connect(lambda name='date': self._on_widget_drag_started(name))
+            self.date_widget.dragEnded.connect(lambda name='date': self._on_widget_drag_ended(name))
+        except Exception:
+            pass
 
         # Time widget - scale initial position and set preview scale
         self.time_widget = TimeWidget(self.preview_widget)
@@ -387,6 +418,11 @@ class MediaPreviewUI(QMainWindow):
         self.time_widget.apply_style(self.text_style)
         self.time_widget.set_enabled(False)
         self.time_widget.positionChanged.connect(lambda pos: self.on_widget_position_changed('time', pos))
+        try:
+            self.time_widget.dragStarted.connect(lambda name='time': self._on_widget_drag_started(name))
+            self.time_widget.dragEnded.connect(lambda name='time': self._on_widget_drag_ended(name))
+        except Exception:
+            pass
 
         # Metric widgets
         metrics_config = [
@@ -410,6 +446,11 @@ class MediaPreviewUI(QMainWindow):
             widget.apply_style(self.text_style)
             widget.set_enabled(False)
             widget.positionChanged.connect(lambda pos, name=metric_name: self.on_widget_position_changed(name, pos))
+            try:
+                widget.dragStarted.connect(lambda name=metric_name: self._on_widget_drag_started(name))
+                widget.dragEnded.connect(lambda name=metric_name: self._on_widget_drag_ended(name))
+            except Exception:
+                pass
             self.metric_widgets[metric_name] = widget
 
         # Free text widgets
@@ -421,6 +462,16 @@ class MediaPreviewUI(QMainWindow):
             widget.apply_style(self.text_style)
             widget.set_enabled(False)
             widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+            try:
+                widget.dragStarted.connect(lambda name=widget_name: self._on_widget_drag_started(name))
+                widget.dragEnded.connect(lambda name=widget_name: self._on_widget_drag_ended(name))
+            except Exception:
+                pass
+            try:
+                widget.dragStarted.connect(lambda name=widget_name: self._on_widget_drag_started(name))
+                widget.dragEnded.connect(lambda name=widget_name: self._on_widget_drag_ended(name))
+            except Exception:
+                pass
             self.text_widgets[widget_name] = widget
 
         # Bar graph widgets (CPU and GPU)
@@ -432,6 +483,16 @@ class MediaPreviewUI(QMainWindow):
                 widget.set_preview_scale(self.preview_scale)
                 widget.set_enabled(False)
                 widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+                try:
+                    widget.dragStarted.connect(lambda name=widget_name: self._on_widget_drag_started(name))
+                    widget.dragEnded.connect(lambda name=widget_name: self._on_widget_drag_ended(name))
+                except Exception:
+                    pass
+                try:
+                    widget.dragStarted.connect(lambda name=widget_name: self._on_widget_drag_started(name))
+                    widget.dragEnded.connect(lambda name=widget_name: self._on_widget_drag_ended(name))
+                except Exception:
+                    pass
                 self.bar_widgets[widget_name] = widget
 
         # Circular graph widgets (CPU and GPU)
@@ -445,6 +506,16 @@ class MediaPreviewUI(QMainWindow):
                 widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
                 self.arc_widgets[widget_name] = widget
 
+        # Shape widgets (decorative elements)
+        self.shape_widgets = {}
+        for i in range(1, 5):  # 4 shape slots
+            widget_name = f"shape{i}"
+            widget = ShapeWidget(parent=self.preview_widget, widget_name=widget_name)
+            widget.set_preview_scale(self.preview_scale)
+            widget.set_enabled(False)
+            widget.positionChanged.connect(lambda pos, name=widget_name: self.on_widget_position_changed(name, pos))
+            self.shape_widgets[widget_name] = widget
+
         # Create property popups for double-click editing
         self._create_property_popups()
         
@@ -453,6 +524,26 @@ class MediaPreviewUI(QMainWindow):
 
         # Ensure overlay widgets are above the foreground drag handle
         self._raise_overlay_widgets()
+
+    def _on_widget_drag_started(self, widget_name: str):
+        """Called when an overlay widget starts being dragged. Throttle preview rendering."""
+        try:
+            if self.preview_manager:
+                self.logger.info(f"Widget {widget_name} drag started - deferring preview generator updates")
+                self.preview_manager.set_dragging(True)
+        except Exception:
+            pass
+
+    def _on_widget_drag_ended(self, widget_name: str):
+        """Called when an overlay widget ends being dragged. Re-enable preview rendering and force final update."""
+        try:
+            if self.preview_manager:
+                self.logger.info(f"Widget {widget_name} drag ended - re-enabling preview generator updates")
+                self.preview_manager.set_dragging(False)
+                # Force an immediate update to reflect final position
+                self.update_preview_widget_configs()
+        except Exception:
+            pass
 
     def _create_property_popups(self):
         """Create property popup instances for each widget type"""
@@ -467,6 +558,9 @@ class MediaPreviewUI(QMainWindow):
         
         self.arc_property_popup = ArcGraphPropertyPopup()
         self.arc_property_popup.propertyChanged.connect(self._on_popup_property_changed)
+        
+        self.shape_property_popup = ShapePropertyPopup()
+        self.shape_property_popup.propertyChanged.connect(self._on_popup_property_changed)
 
     def _connect_double_click_handlers(self):
         """Connect double-click signals from widgets to show property popups"""
@@ -497,6 +591,11 @@ class MediaPreviewUI(QMainWindow):
         for widget in self.arc_widgets.values():
             widget.doubleClicked.connect(
                 lambda w, pos: self.arc_property_popup.show_for_widget(w, pos))
+        
+        # Shape widgets use shape popup
+        for widget in self.shape_widgets.values():
+            widget.doubleClicked.connect(
+                lambda w, pos: self.shape_property_popup.show_for_widget(w, pos))
 
     def _on_popup_property_changed(self, widget, property_name, value):
         """Handle property changes from popup - update config and trigger preview refresh"""
@@ -527,6 +626,29 @@ class MediaPreviewUI(QMainWindow):
             self._create_new_bar_widget(x, y)
         elif widget_type == "arc_graph":
             self._create_new_arc_widget(x, y)
+        elif widget_type.startswith("shape_"):
+            # Extract shape type from widget_type (e.g., "shape_rectangle" -> "rectangle")
+            shape_type = widget_type[6:]  # Remove "shape_" prefix
+            # Map to internal type names
+            shape_type_map = {
+                "rectangle": "rectangle",
+                "rounded_rect": "rounded_rectangle",
+                "circle": "circle",
+                "ellipse": "ellipse",
+                "line": "line",
+                "triangle": "triangle",
+                "arrow": "arrow",
+            }
+            internal_type = shape_type_map.get(shape_type, "rectangle")
+            self._create_new_shape_widget(internal_type, x, y)
+            # Immediately capture debug snapshot if enabled
+            try:
+                import os
+                if os.path.exists('/tmp/preview_debug_enabled') and self.preview_manager and self.preview_manager.display_generator:
+                    pil_image, _ = self.preview_manager.display_generator.get_frame_with_duration(apply_rotation=False)
+                    self.preview_manager.save_debug_snapshot(pil_image, self.preview_manager.display_generator.config)
+            except Exception:
+                pass
         else:
             self.logger.warning(f"Unknown widget type dropped: {widget_type}")
     
@@ -638,6 +760,33 @@ class MediaPreviewUI(QMainWindow):
             "All 4 arc graph widgets are already in use. Please disable one to add another."
         )
 
+    def _create_new_shape_widget(self, shape_type: str, x: int, y: int):
+        """Create a new shape widget or enable first disabled one with specified type"""
+        # Find first disabled shape widget
+        for widget_name, widget in self.shape_widgets.items():
+            if not widget.enabled:
+                widget.set_shape_type(shape_type)
+                widget.set_enabled(True)
+                # For line shapes, default to a thin height so generator doesn't draw a large box
+                if shape_type == 'line':
+                    widget.set_height(6)
+                widget.move(x, y)
+                widget.show()
+                widget.raise_()
+                self.update_preview_widget_configs()
+                
+                # Update the Shapes tab
+                if hasattr(self, 'shapes_tab'):
+                    self.shapes_tab.set_shape_enabled(widget_name, True)
+                    self.shapes_tab.update_from_widget(widget_name)
+                return
+        
+        # All shape widgets in use
+        QMessageBox.information(
+            self, "Shape Limit",
+            "All 4 shape widgets are already in use. Please disable one to add another."
+        )
+
     def _raise_overlay_widgets(self):
         """Raise all overlay widgets in proper z-order hierarchy.
         
@@ -646,9 +795,10 @@ class MediaPreviewUI(QMainWindow):
         2. foreground_widget (foreground overlay - back layer)
         3. bar_widgets (bar graphs - middle layer)
         4. arc_widgets (circular graphs - middle layer)
-        5. text_widgets (free text - front layer)
-        6. metric_widgets (metric displays - front layer)
-        7. date_widget / time_widget (topmost - front layer)
+        5. shape_widgets (decorative elements - between circular graphs and text)
+        6. text_widgets (free text - front layer)
+        7. metric_widgets (metric displays - front layer)
+        8. date_widget / time_widget (topmost - front layer)
         
         This ensures smaller text widgets are always accessible above larger graph widgets.
         """
@@ -665,18 +815,23 @@ class MediaPreviewUI(QMainWindow):
         for widget in self.arc_widgets.values():
             if widget:
                 widget.raise_()
+
+        # 4. Shape widgets (decorative elements - between circular graphs and free text)
+        for widget in self.shape_widgets.values():
+            if widget:
+                widget.raise_()
         
-        # 4. Free text widgets (front layer)
+        # 5. Free text widgets (front layer)
         for widget in self.text_widgets.values():
             if widget:
                 widget.raise_()
         
-        # 5. Metric widgets (front layer)
+        # 6. Metric widgets (front layer)
         for widget in self.metric_widgets.values():
             if widget:
                 widget.raise_()
         
-        # 6. Date and time widgets (topmost)
+        # 8. Date and time widgets (topmost)
         if self.date_widget:
             self.date_widget.raise_()
         if self.time_widget:
@@ -722,6 +877,10 @@ class MediaPreviewUI(QMainWindow):
         # Info Tab - Time, Date, Custom Text, RAM
         self.info_tab = InfoTab(self, self.metric_widgets)
         self.tab_widget.addTab(self.info_tab, "Info")
+
+        # Shapes Tab - decorative shapes
+        self.shapes_tab = ShapesTab(self, self.shape_widgets)
+        self.tab_widget.addTab(self.shapes_tab, "Shapes")
 
         parent_layout.addWidget(self.tab_widget)
 
@@ -906,6 +1065,10 @@ class MediaPreviewUI(QMainWindow):
             circular_graphs_config = display_config.get('circular_graphs', [])
             self.apply_circular_graphs_config(circular_graphs_config)
 
+            # Apply shape configurations (always call to clear old shapes if empty)
+            shapes_config = display_config.get('shapes', [])
+            self.apply_shapes_config(shapes_config)
+
             # Update controls to reflect current widget states
             self.update_controls_from_widgets()
 
@@ -938,8 +1101,8 @@ class MediaPreviewUI(QMainWindow):
             # Apply position (convert device coords to preview coords)
             position = config.get('position', {})
             if position:
-                x = int(position.get('x', 0) * self.preview_scale)
-                y = int(position.get('y', 0) * self.preview_scale)
+                x = int(round(position.get('x', 0) * self.preview_scale))
+                y = int(round(position.get('y', 0) * self.preview_scale))
                 widget.move(x, y)
 
             # Apply font size
@@ -1097,8 +1260,8 @@ class MediaPreviewUI(QMainWindow):
                 # Apply position (convert device coords to preview coords)
                 position = metric_config.get('position', {})
                 if position:
-                    x = int(position.get('x', 0) * self.preview_scale)
-                    y = int(position.get('y', 0) * self.preview_scale)
+                    x = int(round(position.get('x', 0) * self.preview_scale))
+                    y = int(round(position.get('y', 0) * self.preview_scale))
                     widget.move(x, y)
 
                 # Apply custom label and unit
@@ -1211,8 +1374,10 @@ class MediaPreviewUI(QMainWindow):
                 # Apply position (convert device coords to preview coords)
                 position = text_config.get('position', {})
                 if position:
-                    x = int(position.get('x', 0) * self.preview_scale)
-                    y = int(position.get('y', 0) * self.preview_scale)
+                    # Use rounding to match how we compute device->preview positions
+                    # elsewhere (avoid truncation-based 1px offsets).
+                    x = int(round(position.get('x', 0) * self.preview_scale))
+                    y = int(round(position.get('y', 0) * self.preview_scale))
                     widget.move(x, y)
 
                 # Apply text content
@@ -1439,7 +1604,7 @@ class MediaPreviewUI(QMainWindow):
                 if position:
                     import math
                     center_x = int(position.get('x', 0) * self.preview_scale)
-                    center_y = int(position.get('y', 0) * self.preview_scale)
+                    center_y = int(round(position.get('y', 0) * self.preview_scale))
                     # Widget position = center - (widget_size / 2)
                     # Widget size = diameter + thickness + border_padding * 2
                     # Account for preview scale in size calculation
@@ -1554,6 +1719,111 @@ class MediaPreviewUI(QMainWindow):
 
         except Exception as e:
             self.logger.error(f"Error applying circular graphs config: {e}")
+
+    def apply_shapes_config(self, shape_configs):
+        """Apply configurations to shape widgets"""
+        if shape_configs is None:
+            shape_configs = []
+        try:
+            from PySide6.QtGui import QColor
+            
+            # First disable all shape widgets and update their checkboxes
+            for shape_name, shape_widget in self.shape_widgets.items():
+                shape_widget.set_enabled(False)
+                # Also update the checkbox in the shapes tab
+                if hasattr(self, 'shapes_tab') and self.shapes_tab:
+                    if shape_name in self.shapes_tab.shape_checkboxes:
+                        self.shapes_tab.shape_checkboxes[shape_name].blockSignals(True)
+                        self.shapes_tab.shape_checkboxes[shape_name].setChecked(False)
+                        self.shapes_tab.shape_checkboxes[shape_name].blockSignals(False)
+
+            # Apply configuration for each shape widget
+            for shape_config in shape_configs:
+                shape_name = shape_config.get('name')
+                if shape_name not in self.shape_widgets:
+                    continue
+
+                widget = self.shape_widgets[shape_name]
+                
+                # Set preview scale for widget drawing
+                widget.set_preview_scale(self.preview_scale)
+
+                # Apply enabled state
+                enabled = shape_config.get('enabled', False)
+                widget.set_enabled(enabled)
+
+                # (Already applied shape_type and dimensions above)
+
+                # Apply shape type
+                shape_type = shape_config.get('shape_type', 'rectangle')
+                widget.set_shape_type(shape_type)
+
+                # Apply dimensions first so rotation padding calculations use
+                # the *new* size/rotation values (avoids position drift)
+                widget.set_width(shape_config.get('width', 50))
+                widget.set_height(shape_config.get('height', 50))
+                widget.set_rotation(shape_config.get('rotation', 0))
+
+                # Apply position (convert from device to preview coordinates)
+                position = shape_config.get('position', {})
+                if position:
+                    # Convert device coordinates to preview coordinates and account for widget padding
+                    # Use rounding to mirror save-side rounding and avoid truncation drift
+                    x = int(round(position.get('x', 0) * self.preview_scale))
+                    y = int(round(position.get('y', 0) * self.preview_scale))
+                    # Now compute padding using updated widget size/rotation
+                    pad_x, pad_y = (0, 0)
+                    try:
+                        pad_x, pad_y = widget._get_rotation_padding()
+                    except Exception:
+                        pad_x, pad_y = (0, 0)
+                    widget.move(x - pad_x, y - pad_y)
+                    self.logger.info(f"Applying shape config to overlay: {shape_name} -> move to ({x - pad_x}, {y - pad_y}) from device_pos ({x},{y}) pad({pad_x},{pad_y})")
+                widget.set_filled(shape_config.get('filled', True))
+                widget.set_border_width(shape_config.get('border_width', 2))
+                widget.set_corner_radius(shape_config.get('corner_radius', 10))
+                widget.set_arrow_head_size(shape_config.get('arrow_head_size', 15))
+
+                # Apply colors
+                fill_color = shape_config.get('fill_color', '#FF0000FF')
+                border_color = shape_config.get('border_color', '#FFFFFFFF')
+                widget.set_fill_color(self.hex_to_qcolor(fill_color) or QColor(255, 0, 0))
+                widget.set_border_color(self.hex_to_qcolor(border_color) or QColor(255, 255, 255))
+
+                # Update controls in shapes tab
+                if hasattr(self, 'shapes_tab') and self.shapes_tab:
+                    tab = self.shapes_tab
+                    if shape_name in tab.shape_checkboxes:
+                        tab.shape_checkboxes[shape_name].setChecked(enabled)
+                    if shape_name in tab.shape_type_combos:
+                        idx = tab.shape_type_combos[shape_name].findData(shape_type)
+                        if idx >= 0:
+                            tab.shape_type_combos[shape_name].setCurrentIndex(idx)
+                    if shape_name in tab.shape_width_spins:
+                        tab.shape_width_spins[shape_name].setValue(shape_config.get('width', 50))
+                    if shape_name in tab.shape_height_spins:
+                        tab.shape_height_spins[shape_name].setValue(shape_config.get('height', 50))
+                    if shape_name in tab.shape_rotation_spins:
+                        tab.shape_rotation_spins[shape_name].setValue(shape_config.get('rotation', 0))
+                    if shape_name in tab.shape_filled_checkboxes:
+                        tab.shape_filled_checkboxes[shape_name].setChecked(shape_config.get('filled', True))
+                    if shape_name in tab.shape_border_width_spins:
+                        tab.shape_border_width_spins[shape_name].setValue(shape_config.get('border_width', 2))
+                    if shape_name in tab.shape_corner_radius_spins:
+                        tab.shape_corner_radius_spins[shape_name].setValue(shape_config.get('corner_radius', 10))
+                    if shape_name in tab.shape_arrow_head_spins:
+                        tab.shape_arrow_head_spins[shape_name].setValue(shape_config.get('arrow_head_size', 15))
+                    if shape_name in tab.shape_fill_color_btns:
+                        tab.shape_fill_color_btns[shape_name].setStyleSheet(
+                            f"background-color: {fill_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+                    if shape_name in tab.shape_border_color_btns:
+                        tab.shape_border_color_btns[shape_name].setStyleSheet(
+                            f"background-color: {border_color[:7]}; border: 1px solid #888; border-radius: 3px;")
+
+                widget.update_display()
+
+        except Exception as e:
+            self.logger.error(f"Error applying shapes config: {e}")
 
     def update_controls_from_widgets(self):
         """Update control interface to reflect current widget states"""
@@ -1879,6 +2149,10 @@ class MediaPreviewUI(QMainWindow):
         
         # Debounce preview update - restart timer on each move
         self._position_update_timer.start()
+        # NOTE: Do NOT take synchronous snapshots here - this was causing the
+        # GUI to block while dragging when `/tmp/preview_debug_enabled` was present.
+        # Throttled snapshots and updates are handled in PreviewManager._drag_throttled_update
+        # to avoid blocking the UI thread.
 
     def _on_widget_size_changed(self, widget, property_name, new_value):
         """Handle widget size/property change from resize handles"""
@@ -2196,13 +2470,109 @@ class MediaPreviewUI(QMainWindow):
             return
         
         date_config, time_config, metrics_configs, text_configs, bar_configs, circular_configs = self.collect_widget_configs()
+        # Collect shape configs from shape_widgets
+        shape_configs = []
+        for name, widget in self.shape_widgets.items():
+            if widget.enabled:
+                # Convert QColor to RGBA tuple
+                def qcolor_to_rgba(qcolor):
+                    return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+
+                # Account for rotation padding: widget.pos() is the top-left of the full
+                # diagonal bounding box, whereas the shape's top-left is offset inside
+                pad_x, pad_y = (0, 0)
+                try:
+                    pad_x, pad_y = widget._get_rotation_padding()
+                except Exception:
+                    pad_x, pad_y = (0, 0)
+
+                widget_pos = widget.get_position()
+                # Compute device coordinates for the actual shape top-left (round to avoid small drifts)
+                device_x = int(round((widget_pos[0] + pad_x) / self.preview_scale))
+                device_y = int(round((widget_pos[1] + pad_y) / self.preview_scale))
+
+                shape_configs.append(ShapeConfig(
+                    shape_type=ShapeType(widget.get_shape_type()),
+                    position=(device_x, device_y),
+                    width=widget.get_width(),
+                    height=widget.get_height(),
+                    rotation=widget.get_rotation(),
+                    filled=widget.get_filled(),
+                    fill_color=qcolor_to_rgba(widget.get_fill_color()),
+                    border_color=qcolor_to_rgba(widget.get_border_color()),
+                    border_width=widget.get_border_width(),
+                    corner_radius=widget.get_corner_radius(),
+                    arrow_head_size=widget.get_arrow_head_size(),
+                    enabled=True
+                ))
+        # Log computed shape configs to help debug alignment
+        try:
+            for sc in shape_configs:
+                self.logger.info(f"UI -> Preview shape: type={sc.shape_type}, device_pos={sc.position}, size=({sc.width},{sc.height}), rot={sc.rotation}")
+            # Update preview manager debug markers (device coordinates)
+            if hasattr(self, 'preview_manager') and self.preview_manager:
+                try:
+                    # Collect debug overlay markers for shapes, text, metrics, bars, arcs
+                    markers = []
+                    # Shapes are already at device coords
+                    markers.extend([sc.position for sc in shape_configs])
+                    # Date and time
+                    try:
+                        if hasattr(self, 'date_widget') and self.date_widget and self.date_widget.enabled:
+                            dp = self.date_widget.pos()
+                            markers.append((int(round(dp.x() / self.preview_scale)), int(round(dp.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, 'time_widget') and self.time_widget and self.time_widget.enabled:
+                            tp = self.time_widget.pos()
+                            markers.append((int(round(tp.x() / self.preview_scale)), int(round(tp.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    # Metrics
+                    try:
+                        for w in self.metric_widgets.values():
+                            if w and getattr(w, 'enabled', False):
+                                pos = w.pos()
+                                markers.append((int(round(pos.x() / self.preview_scale)), int(round(pos.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    # Text widgets
+                    try:
+                        for w in self.text_widgets.values():
+                            if w and getattr(w, 'enabled', False):
+                                pos = w.pos()
+                                markers.append((int(round(pos.x() / self.preview_scale)), int(round(pos.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    # Bar and arc widgets - include their centers as markers
+                    try:
+                        for w in self.bar_widgets.values():
+                            if w and getattr(w, 'enabled', False):
+                                pos = w.pos()
+                                markers.append((int(round(pos.x() / self.preview_scale)), int(round(pos.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    try:
+                        for w in self.arc_widgets.values():
+                            if w and getattr(w, 'enabled', False):
+                                pos = w.pos()
+                                markers.append((int(round(pos.x() / self.preview_scale)), int(round(pos.y() / self.preview_scale))))
+                    except Exception:
+                        pass
+                    self.preview_manager.debug_overlay_markers = markers
+                except Exception:
+                    self.preview_manager.debug_overlay_markers = []
+        except Exception:
+            pass
         self.preview_manager.update_widget_configs(
             date_config=date_config,
             time_config=time_config,
             metrics_configs=metrics_configs,
             text_configs=text_configs,
             bar_configs=[],  # Rendered by Qt overlay widgets
-            circular_configs=[]  # Rendered by Qt overlay widgets
+            circular_configs=[],  # Rendered by Qt overlay widgets
+            shape_configs=shape_configs
         )
 
     def on_foreground_dragged(self, x, y):
@@ -2917,7 +3287,7 @@ class MediaPreviewUI(QMainWindow):
         config_path = self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
             self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
-            self.arc_widgets, existing_path=save_path
+            self.arc_widgets, self.shape_widgets, existing_path=save_path
         )
         if config_path:
             self.current_theme_path = config_path  # Update path in case it was new
@@ -3023,7 +3393,7 @@ class MediaPreviewUI(QMainWindow):
             config_path = self.config_generator.generate_config_yaml(
                 self.preview_manager, self.text_style, self.metric_widgets,
                 self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
-                self.arc_widgets, existing_path=None, theme_name=theme_name
+                self.arc_widgets, self.shape_widgets, existing_path=None, theme_name=theme_name
             )
             if config_path:
                 self.current_theme_path = config_path
@@ -3037,7 +3407,7 @@ class MediaPreviewUI(QMainWindow):
         self.config_generator.generate_config_yaml(
             self.preview_manager, self.text_style, self.metric_widgets,
             self.date_widget, self.time_widget, self.text_widgets, self.bar_widgets,
-            self.arc_widgets, preview=True
+            self.arc_widgets, self.shape_widgets, preview=True
         )
 
     def closeEvent(self, event):
@@ -3046,6 +3416,39 @@ class MediaPreviewUI(QMainWindow):
         for widget in [self.date_widget, self.time_widget]:
             if widget and hasattr(widget, 'update_timer'):
                 widget.update_timer.stop()
+        
+        # Stop bar widget timers
+        if hasattr(self, 'bar_widgets'):
+            for widget in self.bar_widgets.values():
+                if widget and hasattr(widget, 'update_timer'):
+                    widget.update_timer.stop()
+        
+        # Stop arc widget timers
+        if hasattr(self, 'arc_widgets'):
+            for widget in self.arc_widgets.values():
+                if widget and hasattr(widget, 'update_timer'):
+                    widget.update_timer.stop()
+        
+        # Stop metric widget timers
+        if hasattr(self, 'metric_widgets'):
+            for widget in self.metric_widgets.values():
+                if widget and hasattr(widget, 'update_timer'):
+                    widget.update_timer.stop()
+        
+        # Close property popups
+        if hasattr(self, 'text_property_popup') and self.text_property_popup:
+            self.text_property_popup.close()
+        if hasattr(self, 'metric_property_popup') and self.metric_property_popup:
+            self.metric_property_popup.close()
+        if hasattr(self, 'bar_property_popup') and self.bar_property_popup:
+            self.bar_property_popup.close()
+        if hasattr(self, 'arc_property_popup') and self.arc_property_popup:
+            self.arc_property_popup.close()
+        if hasattr(self, 'shape_property_popup') and self.shape_property_popup:
+            self.shape_property_popup.close()
+
+        # Stop metrics cache background thread
+        cleanup_metrics_cache()
 
         if self.preview_manager:
             self.preview_manager.cleanup()

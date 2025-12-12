@@ -106,7 +106,9 @@ class LoggerConfig:
         log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
         logger.setLevel(getattr(logging, log_level, logging.INFO))
 
-        if LoggerConfig.is_development_mode():
+        # Allow overriding file logging to console by setting environment variable
+        force_console = os.getenv('LOG_TO_STDOUT', '').lower() in ('1', 'true', 'yes')
+        if LoggerConfig.is_development_mode() or force_console:
             # Development mode: console output
             handler = LoggerConfig._create_console_handler()
             logger.info("Device controller logger configured for development mode (console)")
@@ -133,7 +135,8 @@ class LoggerConfig:
         log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
         logger.setLevel(getattr(logging, log_level, logging.INFO))
 
-        if LoggerConfig.is_development_mode():
+        force_console = os.getenv('GUI_LOG_TO_STDOUT', '') .lower() in ('1', 'true', 'yes')
+        if LoggerConfig.is_development_mode() or force_console:
             # Development mode: console output
             handler = LoggerConfig._create_console_handler()
             logger.info("LCD Control UI logger configured for development mode (console)")

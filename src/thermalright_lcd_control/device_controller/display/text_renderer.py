@@ -121,7 +121,15 @@ class TextRenderer:
 
             # Get font using global font configuration
             font = self._get_font(config.font_size)
-
+            
+            # Get text bounding box to clear area
+            try:
+                bbox = draw.textbbox(config.position, text, font=font, anchor='mm')
+                # Clear the area with background color (black)
+                draw.rectangle(bbox, fill=(0, 0, 0))
+            except Exception as e:
+                self.logger.warning(f"Error clearing text area for {config.name}: {e}")
+            
             # Draw text
             draw.text(config.position, text, fill=config.color, font=font, anchor='mm')
 
@@ -137,6 +145,14 @@ class TextRenderer:
         font = self._get_font(config.font_size)
 
         # Draw text
+        # Get text bounding box to clear area
+        try:
+            bbox = draw.textbbox(config.position, current_date, font=font, anchor='mm')
+            # Clear the area with background color (black)
+            draw.rectangle(bbox, fill=(0, 0, 0))
+        except Exception as e:
+            self.logger.warning(f"Error clearing date text area: {e}")
+        
         draw.text(config.position, current_date, fill=config.color, font=font, anchor='mm')
 
     def render_time(self, draw: ImageDraw.Draw, config: Optional[TextConfig]):
@@ -151,6 +167,14 @@ class TextRenderer:
         font = self._get_font(config.font_size)
 
         # Draw text
+        # Get text bounding box to clear area
+        try:
+            bbox = draw.textbbox(config.position, current_time, font=font, anchor='mm')
+            # Clear the area with background color (black)
+            draw.rectangle(bbox, fill=(0, 0, 0))
+        except Exception as e:
+            self.logger.warning(f"Error clearing time text area: {e}")
+        
         draw.text(config.position, current_time, fill=config.color, font=font, anchor='mm')
 
     def render_custom_text(self, draw: ImageDraw.Draw, config: TextConfig):
@@ -162,4 +186,12 @@ class TextRenderer:
         font = self._get_font(config.font_size)
 
         # Draw text
+        # Get text bounding box to clear area
+        try:
+            bbox = draw.textbbox(config.position, config.text, font=font, anchor='mm')
+            # Clear the area with background color (black)
+            draw.rectangle(bbox, fill=(0, 0, 0))
+        except Exception as e:
+            self.logger.warning(f"Error clearing custom text area: {e}")
+        
         draw.text(config.position, config.text, fill=config.color, font=font, anchor='mm')

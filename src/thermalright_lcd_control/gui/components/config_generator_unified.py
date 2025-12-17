@@ -167,6 +167,8 @@ class ConfigGeneratorUnified:
                 "color": self._rgba_to_hex(config.color),
                 "label": getattr(config, 'label', ''),
                 "unit": getattr(config, 'unit', ''),
+
+                "format_string": getattr(config, 'format_string', '{label}{value}{unit}'),
                 "label_position": getattr(config, 'label_position', 'right'),
                 "label_offset_x": getattr(config, 'label_offset_x', 5),
                 "label_offset_y": getattr(config, 'label_offset_y', 0),

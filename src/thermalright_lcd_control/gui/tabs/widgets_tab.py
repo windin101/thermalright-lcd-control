@@ -1,13 +1,13 @@
 """
 Widgets Tab - For adding and configuring display widgets
 """
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QWidget, QVBoxLayout, QGroupBox,
     QLabel, QPushButton, QComboBox, QLineEdit,
-    QSpinBox, QScrollArea, QFormLayout, QListWidget,
-    QListWidgetItem, QMessageBox
+    QSpinBox, QFormLayout, QListWidget,
+    QListWidgetItem, QDialog, QDialogButtonBox
 )
 
 from ...common.logging_config import get_gui_logger
@@ -16,8 +16,7 @@ from ...common.logging_config import get_gui_logger
 class WidgetsTab(QWidget):
     """Tab for managing display widgets"""
     
-    widget_added = Signal(str, dict)  # widget_type, properties
-    widget_removed = Signal(str)  # widget_id
+    widget_added = Signal(str, str, dict)  # widget_id, widget_type, properties
     widget_updated = Signal(str, dict)  # widget_id, properties
     
     def __init__(self, parent=None):
@@ -37,22 +36,17 @@ class WidgetsTab(QWidget):
         
         # Widget list
         self.widget_list = QListWidget()
-        self.widget_list.itemSelectionChanged.connect(self._on_widget_selected)
+        self.widget_list.itemSelectionChanged.connect(self.on_widget_selected)
         list_layout.addWidget(self.widget_list)
         
         # Add widget button
         add_widget_btn = QPushButton("+ Add Widget")
-        add_widget_btn.clicked.connect(self._show_add_widget_dialog)
+        add_widget_btn.clicked.connect(self.show_add_widget_dialog)
         list_layout.addWidget(add_widget_btn)
-        
-        # Remove widget button
-        remove_widget_btn = QPushButton("- Remove Widget")
-        remove_widget_btn.clicked.connect(self._remove_selected_widget)
-        list_layout.addWidget(remove_widget_btn)
         
         main_layout.addWidget(list_group)
         
-        # Widget properties section (initially hidden)
+        # Widget properties section
         self.properties_group = QGroupBox("Widget Properties")
         self.properties_group.setVisible(False)
         self.properties_layout = QFormLayout(self.properties_group)
@@ -60,10 +54,8 @@ class WidgetsTab(QWidget):
         
         main_layout.addStretch()
     
-    def _show_add_widget_dialog(self):
+    def show_add_widget_dialog(self):
         """Show dialog to add new widget"""
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox
-        
         dialog = QDialog(self)
         dialog.setWindowTitle("Add Widget")
         dialog_layout = QVBoxLayout(dialog)
@@ -73,7 +65,7 @@ class WidgetsTab(QWidget):
         dialog_layout.addWidget(type_label)
         
         type_combo = QComboBox()
-        type_combo.addItems(["Metric", "Text", "Bar Graph", "Circular Graph", "Shape"])
+        type_combo.addItems(["Metric", "Text", "Date", "Time"])
         dialog_layout.addWidget(type_combo)
         
         # Buttons
@@ -83,15 +75,15 @@ class WidgetsTab(QWidget):
         dialog_layout.addWidget(buttons)
         
         if dialog.exec():
-            widget_type = type_combo.currentText().lower().replace(" ", "_")
-            self._add_widget(widget_type)
+            widget_type = type_combo.currentText().lower()
+            self.add_widget(widget_type)
     
-    def _add_widget(self, widget_type: str):
+    def add_widget(self, widget_type: str):
         """Add a new widget"""
         import uuid
         widget_id = f"{widget_type}_{uuid.uuid4().hex[:8]}"
         
-        # Default properties based on widget type
+        # Default properties
         if widget_type == "metric":
             properties = {
                 "type": "metric",
@@ -101,7 +93,23 @@ class WidgetsTab(QWidget):
                 "position": (50, 50),
                 "size": (100, 30)
             }
-        elif widget_type == "text":
+        elif widget_type == "date":
+            properties = {
+                "type": "date",
+                "date_format": "%d/%m",  # dd/mm format
+                "font_size": 16,
+                "position": (50, 150),
+                "size": (100, 30)
+            }
+        elif widget_type == "time":
+            properties = {
+                "type": "time", 
+                "time_format": "%H:%M",  # HH:MM format
+                "font_size": 16,
+                "position": (50, 200),
+                "size": (100, 30)
+            }
+        else:  # text
             properties = {
                 "type": "text",
                 "text": "Sample Text",
@@ -109,36 +117,13 @@ class WidgetsTab(QWidget):
                 "position": (50, 100),
                 "size": (100, 30)
             }
-        else:
-            properties = {
-                "type": widget_type,
-                "position": (50, 150),
-                "size": (100, 100)
-            }
         
         self.widgets[widget_id] = properties
-        self._update_widget_list()
-        
-        # Emit signal for main window to create actual widget
-        self.widget_added.emit(widget_type, properties)
-        
-        self.logger.info(f"Added widget: {widget_id} ({widget_type})")
+        self.update_widget_list()
+        self.widget_added.emit(widget_id, widget_type, properties)
+        self.logger.info(f"Added widget: {widget_id}")
     
-    def _remove_selected_widget(self):
-        """Remove selected widget"""
-        selected = self.widget_list.currentItem()
-        if not selected:
-            return
-        
-        widget_id = selected.data(Qt.UserRole)
-        if widget_id in self.widgets:
-            del self.widgets[widget_id]
-            self._update_widget_list()
-            self.widget_removed.emit(widget_id)
-            self.properties_group.setVisible(False)
-            self.logger.info(f"Removed widget: {widget_id}")
-    
-    def _on_widget_selected(self):
+    def on_widget_selected(self):
         """Handle widget selection"""
         selected = self.widget_list.currentItem()
         if not selected:
@@ -146,9 +131,9 @@ class WidgetsTab(QWidget):
             return
         
         self.current_widget_id = selected.data(Qt.UserRole)
-        self._show_widget_properties(self.current_widget_id)
+        self.show_widget_properties(self.current_widget_id)
     
-    def _show_widget_properties(self, widget_id: str):
+    def show_widget_properties(self, widget_id: str):
         """Show properties for selected widget"""
         # Clear existing properties
         while self.properties_layout.count():
@@ -164,38 +149,42 @@ class WidgetsTab(QWidget):
         
         # Add properties based on widget type
         if widget_type == "metric":
-            self._add_metric_properties(properties)
+            self.add_metric_properties(properties)
         elif widget_type == "text":
-            self._add_text_properties(properties)
-        # Add other widget types here
+            self.add_text_properties(properties)
+        elif widget_type == "date":
+            self.add_date_properties(properties)
+        elif widget_type == "time":
+            self.add_time_properties(properties)
+            self.add_text_properties(properties)
         
         self.properties_group.setVisible(True)
         self.properties_group.setTitle(f"Properties: {widget_id}")
     
-    def _add_metric_properties(self, properties: Dict[str, Any]):
+    def add_metric_properties(self, properties: Dict[str, Any]):
         """Add metric widget property controls"""
         # Metric type
         type_combo = QComboBox()
-        type_combo.addItems(["CPU Usage", "GPU Usage", "RAM Usage", "Network", "Temperature"])
+        type_combo.addItems(["CPU Usage", "GPU Usage", "RAM Usage"])
         type_combo.setCurrentText(properties.get("label", "CPU"))
         type_combo.currentTextChanged.connect(
-            lambda text: self._update_property("label", text)
+            lambda text: self.update_property("label", text)
         )
         self.properties_layout.addRow("Metric:", type_combo)
         
         # Unit
         unit_edit = QLineEdit(properties.get("unit", "%"))
         unit_edit.textChanged.connect(
-            lambda text: self._update_property("unit", text)
+            lambda text: self.update_property("unit", text)
         )
         self.properties_layout.addRow("Unit:", unit_edit)
     
-    def _add_text_properties(self, properties: Dict[str, Any]):
+    def add_text_properties(self, properties: Dict[str, Any]):
         """Add text widget property controls"""
         # Text content
         text_edit = QLineEdit(properties.get("text", "Sample Text"))
         text_edit.textChanged.connect(
-            lambda text: self._update_property("text", text)
+            lambda text: self.update_property("text", text)
         )
         self.properties_layout.addRow("Text:", text_edit)
         
@@ -204,29 +193,172 @@ class WidgetsTab(QWidget):
         size_spin.setRange(8, 72)
         size_spin.setValue(properties.get("font_size", 16))
         size_spin.valueChanged.connect(
-            lambda value: self._update_property("font_size", value)
+            lambda value: self.update_property("font_size", value)
         )
         self.properties_layout.addRow("Font Size:", size_spin)
     
-    def _update_property(self, key: str, value: Any):
+    def add_date_properties(self, properties: Dict[str, Any]):
+        """Add date widget property controls"""
+        # Date format
+        format_combo = QComboBox()
+        format_combo.addItems(["%d/%m", "%m/%d", "%d-%m", "%m-%d", "%d %b", "%b %d"])
+        format_combo.setCurrentText(properties.get("date_format", "%d/%m"))
+        format_combo.currentTextChanged.connect(
+            lambda text: self.update_property("date_format", text)
+        )
+        self.properties_layout.addRow("Date Format:", format_combo)
+        
+        # Font size
+        size_spin = QSpinBox()
+        size_spin.setRange(8, 72)
+        size_spin.setValue(properties.get("font_size", 16))
+        size_spin.valueChanged.connect(
+            lambda value: self.update_property("font_size", value)
+        )
+        self.properties_layout.addRow("Font Size:", size_spin)
+        
+        # Position
+        pos_x = QSpinBox()
+        pos_x.setRange(0, 1000)
+        pos_x.setValue(properties.get("position", (50, 150))[0])
+        pos_x.valueChanged.connect(
+            lambda value: self._update_position("x", value)
+        )
+        
+        pos_y = QSpinBox()
+        pos_y.setRange(0, 1000)
+        pos_y.setValue(properties.get("position", (50, 150))[1])
+        pos_y.valueChanged.connect(
+            lambda value: self._update_position("y", value)
+        )
+        
+        pos_layout = QHBoxLayout()
+        pos_layout.addWidget(QLabel("X:"))
+        pos_layout.addWidget(pos_x)
+        pos_layout.addWidget(QLabel("Y:"))
+        pos_layout.addWidget(pos_y)
+        self.properties_layout.addRow("Position:", pos_layout)
+        
+        # Size
+        width_spin = QSpinBox()
+        width_spin.setRange(10, 500)
+        width_spin.setValue(properties.get("size", (100, 30))[0])
+        width_spin.valueChanged.connect(
+            lambda value: self._update_size("width", value)
+        )
+        
+        height_spin = QSpinBox()
+        height_spin.setRange(10, 500)
+        height_spin.setValue(properties.get("size", (100, 30))[1])
+        height_spin.valueChanged.connect(
+            lambda value: self._update_size("height", value)
+        )
+        
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Width:"))
+        size_layout.addWidget(width_spin)
+        size_layout.addWidget(QLabel("Height:"))
+        size_layout.addWidget(height_spin)
+        self.properties_layout.addRow("Size:", size_layout)
+    
+    def add_time_properties(self, properties: Dict[str, Any]):
+        """Add time widget property controls"""
+        # Time format
+        format_combo = QComboBox()
+        format_combo.addItems(["%H:%M", "%I:%M %p", "%H:%M:%S", "%I:%M:%S %p"])
+        format_combo.setCurrentText(properties.get("time_format", "%H:%M"))
+        format_combo.currentTextChanged.connect(
+            lambda text: self.update_property("time_format", text)
+        )
+        self.properties_layout.addRow("Time Format:", format_combo)
+        
+        # Font size
+        size_spin = QSpinBox()
+        size_spin.setRange(8, 72)
+        size_spin.setValue(properties.get("font_size", 16))
+        size_spin.valueChanged.connect(
+            lambda value: self.update_property("font_size", value)
+        )
+        self.properties_layout.addRow("Font Size:", size_spin)
+        
+        # Position
+        pos_x = QSpinBox()
+        pos_x.setRange(0, 1000)
+        pos_x.setValue(properties.get("position", (50, 200))[0])
+        pos_x.valueChanged.connect(
+            lambda value: self._update_position("x", value)
+        )
+        
+        pos_y = QSpinBox()
+        pos_y.setRange(0, 1000)
+        pos_y.setValue(properties.get("position", (50, 200))[1])
+        pos_y.valueChanged.connect(
+            lambda value: self._update_position("y", value)
+        )
+        
+        pos_layout = QHBoxLayout()
+        pos_layout.addWidget(QLabel("X:"))
+        pos_layout.addWidget(pos_x)
+        pos_layout.addWidget(QLabel("Y:"))
+        pos_layout.addWidget(pos_y)
+        self.properties_layout.addRow("Position:", pos_layout)
+        
+        # Size
+        width_spin = QSpinBox()
+        width_spin.setRange(10, 500)
+        width_spin.setValue(properties.get("size", (100, 30))[0])
+        width_spin.valueChanged.connect(
+            lambda value: self._update_size("width", value)
+        )
+        
+        height_spin = QSpinBox()
+        height_spin.setRange(10, 500)
+        height_spin.setValue(properties.get("size", (100, 30))[1])
+        height_spin.valueChanged.connect(
+            lambda value: self._update_size("height", value)
+        )
+        
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Width:"))
+        size_layout.addWidget(width_spin)
+        size_layout.addWidget(QLabel("Height:"))
+        size_layout.addWidget(height_spin)
+        self.properties_layout.addRow("Size:", size_layout)
+
+    def _update_position(self, axis: str, value: int):
+        """Update position of current widget"""
+        if self.current_widget_id and self.current_widget_id in self.widgets:
+            properties = self.widgets[self.current_widget_id]
+            current_pos = properties.get("position", (50, 50))
+            if axis == "x":
+                new_pos = (value, current_pos[1])
+            else:  # y
+                new_pos = (current_pos[0], value)
+            properties["position"] = new_pos
+            self.widget_updated.emit(self.current_widget_id, properties)
+    
+    def _update_size(self, dimension: str, value: int):
+        """Update size of current widget"""
+        if self.current_widget_id and self.current_widget_id in self.widgets:
+            properties = self.widgets[self.current_widget_id]
+            current_size = properties.get("size", (100, 30))
+            if dimension == "width":
+                new_size = (value, current_size[1])
+            else:  # height
+                new_size = (current_size[0], value)
+            properties["size"] = new_size
+            self.widget_updated.emit(self.current_widget_id, properties)
+
+    def update_property(self, key: str, value: Any):
         """Update property of current widget"""
         if self.current_widget_id and self.current_widget_id in self.widgets:
             self.widgets[self.current_widget_id][key] = value
             self.widget_updated.emit(self.current_widget_id, self.widgets[self.current_widget_id])
     
-    def _update_widget_list(self):
+    def update_widget_list(self):
         """Update widget list display"""
         self.widget_list.clear()
         for widget_id, properties in self.widgets.items():
             item = QListWidgetItem(f"{properties.get('type', 'unknown')}: {properties.get('label', widget_id)}")
             item.setData(Qt.UserRole, widget_id)
             self.widget_list.addItem(item)
-    
-    def load_widgets(self, widgets: Dict[str, Dict[str, Any]]):
-        """Load widgets from configuration"""
-        self.widgets = widgets.copy()
-        self._update_widget_list()
-    
-    def get_widgets(self) -> Dict[str, Dict[str, Any]]:
-        """Get all widgets configuration"""
-        return self.widgets.copy()

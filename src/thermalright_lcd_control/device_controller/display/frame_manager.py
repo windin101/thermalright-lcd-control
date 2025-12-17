@@ -272,7 +272,17 @@ class FrameManager:
             }
         except Exception as e:
             self.logger.error(f"Error updating metrics: {e}")
-            raise e
+            # Return default values so metrics widgets show "N/A" instead of disappearing
+            return {
+                'cpu_temperature': 'N/A',
+                'cpu_usage': 'N/A',
+                'cpu_frequency': 'N/A',
+                'gpu_temperature': 'N/A',
+                'gpu_usage': 'N/A',
+                'gpu_frequency': 'N/A',
+                'gpu_vendor': 'N/A',
+                'gpu_name': 'N/A'
+            }
 
     def _gif_duration(self, frame: Image.Image) -> float:
         # Get duration from GIF metadata

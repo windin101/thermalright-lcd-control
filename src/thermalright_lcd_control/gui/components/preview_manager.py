@@ -64,7 +64,7 @@ class PreviewManager:
     def determine_background_type(self, file_path):
         """Determine BackgroundType from file extension"""
         if not file_path:
-            return BackgroundType.IMAGE
+            return BackgroundType.COLOR
 
         if Path(file_path).is_dir():
             return BackgroundType.IMAGE_COLLECTION

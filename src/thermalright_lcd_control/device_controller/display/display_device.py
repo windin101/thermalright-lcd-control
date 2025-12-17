@@ -51,21 +51,14 @@ class DisplayDevice(ABC):
 
     def _encode_image(self, img: Image) -> bytearray:
         width, height = img.size
-
-        coords = [(x, y) for x in range(width) for y in range(height - 1, -1, -1)]
-
         out = bytearray()
-
-        for i, (x, y) in enumerate(coords, start=1):
-            if i % height == 0:
-                out.extend((0x00, 0x00))
-            else:
+        for x in range(width):
+            for y in range(height-1, -1, -1):
                 r, g, b = img.getpixel((x, y))
                 val565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-                lo = val565 & 0xFF
                 hi = (val565 >> 8) & 0xFF
+                lo = val565 & 0xFF
                 out.extend((lo, hi))
-
         return out
 
     @abstractmethod
@@ -94,13 +87,17 @@ class DisplayDevice(ABC):
     def run(self):
         self.logger.info("Display device running")
         while True:
-            img, delay_time = self._get_generator().get_frame_with_duration()
-            header = self.get_header()
-            img_bytes = header + self._encode_image(img)
-            frame_packets = self._prepare_frame_packets(img_bytes)
-            for packet in frame_packets:
-                self.send_packet(packet)
-            time.sleep(delay_time)
+            try:
+                img, delay_time = self._get_generator().get_frame_with_duration()
+                header = self.get_header()
+                img_bytes = header + self._encode_image(img)
+                frame_packets = self._prepare_frame_packets(img_bytes)
+                for packet in frame_packets:
+                    self.send_packet(packet)
+                time.sleep(max(delay_time, 0.2))
+            except Exception as e:
+                self.logger.error(f"Error in display device run loop: {e}")
+                time.sleep(1.0)  # Wait before retrying
 
     @abstractmethod
     def send_packet(self, packet: bytes):

@@ -11,6 +11,7 @@ from PySide6.QtGui import QBrush, QColor, QPixmap, QImage
 from thermalright_lcd_control.gui.widgets.unified import UnifiedGraphicsView
 from thermalright_lcd_control.gui.widgets.unified.adapter import UnifiedToDisplayAdapter
 from thermalright_lcd_control.gui.unified_integration import UnifiedIntegration
+from thermalright_lcd_control.gui.metrics.metric_data_manager import get_metric_manager
 from thermalright_lcd_control.common.logging_config import get_gui_logger
 
 
@@ -23,6 +24,9 @@ class UnifiedController:
         # Unified system
         self.unified_view = None
         self.unified_integration = None
+        
+        # Metric data manager for live system metrics
+        self.metric_manager = get_metric_manager()
         
         # State
         self.device_width = 320
@@ -41,8 +45,18 @@ class UnifiedController:
         self.device_height = device_height
         self.preview_scale = preview_scale
         
+        # Start metric data collection
+        self.metric_manager.start()
+        self.logger.info("Metric data manager started")
+        
         self.unified_integration = UnifiedIntegration(self)
         self.logger.info("Unified controller setup complete")
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        if hasattr(self, 'metric_manager') and self.metric_manager:
+            self.metric_manager.stop()
+            self.logger.info("Metric data manager stopped")
     
     def setup_preview_area(self, preview_area_widget: QWidget) -> bool:
         """Setup unified preview area - returns success"""
@@ -76,7 +90,8 @@ class UnifiedController:
             # Ensure viewport matches view size
             self.unified_view.view.viewport().resize(view_width, view_height)
             
-            # Don't use fitInView - let the view show the scene at 1:1
+            # Fit view to scene to ensure proper display
+            self.unified_view.view.fitInView(self.unified_view.scene.sceneRect(), Qt.KeepAspectRatio)
             
             # Center the view on the scene center to ensure proper alignment
             scene_center = self.unified_view.scene.sceneRect().center()
@@ -406,14 +421,15 @@ class UnifiedController:
         return len(self.unified_view.get_all_widgets())
 
     # Widget management methods
-    def create_widget(self, widget_type: str, properties: dict) -> Optional[str]:
+    def create_widget(self, widget_type: str, properties: dict, widget_id: str = None) -> Optional[str]:
         """Create a new widget in the unified view"""
         if not self.unified_view:
             return None
         
         try:
             import uuid
-            widget_id = f"{widget_type}_{uuid.uuid4().hex[:8]}"
+            if widget_id is None:
+                widget_id = f"{widget_type}_{uuid.uuid4().hex[:8]}"
             
             # Get position from properties or use default
             x = properties.get('position', (50, 50))[0]
@@ -427,45 +443,216 @@ class UnifiedController:
             scene_width = int(width * self.preview_scale)
             scene_height = int(height * self.preview_scale)
             
-            # Create widget based on type
+            # Create widget using appropriate UnifiedGraphicsView method
+            widget = None
+            
             if widget_type == "metric":
-                widget = self.unified_view.create_metric_widget(
-                    widget_name=widget_id,
-                    x=scene_x,
-                    y=scene_y,
-                    width=scene_width,
-                    height=scene_height,
-                    label=properties.get('label', 'CPU'),
-                    metric_type=properties.get('metric_type', 'cpu_usage'),
-                    unit=properties.get('unit', '%'),
-                    font_size=properties.get('font_size', 16),
-                    text_color=(255, 255, 255, 255)
-                )
+                # Determine metric type and create appropriate widget
+                metric_type = properties.get('metric_type', 'cpu_usage')
+                label = properties.get('label', 'CPU')
+                
+                if 'temperature' in metric_type.lower() or 'temp' in label.lower():
+                    widget = self.unified_view.create_temperature_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif 'usage' in metric_type.lower() or 'cpu' in label.lower() or 'gpu' in label.lower():
+                    widget = self.unified_view.create_usage_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif 'frequency' in metric_type.lower() or 'freq' in label.lower():
+                    widget = self.unified_view.create_frequency_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif 'ram' in metric_type.lower() or 'memory' in label.lower():
+                    widget = self.unified_view.create_ram_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif 'gpu' in label.lower() and 'memory' in label.lower():
+                    widget = self.unified_view.create_gpu_memory_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif 'name' in metric_type.lower():
+                    widget = self.unified_view.create_name_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                else:
+                    # Generic metric widget
+                    widget = self.unified_view.create_metric_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                    
             elif widget_type == "text":
-                widget = self.unified_view.create_text_widget(
+                # Create free text widget
+                widget = self.unified_view.create_free_text_widget(
                     widget_name=widget_id,
                     x=scene_x,
                     y=scene_y,
                     width=scene_width,
                     height=scene_height,
-                    text=properties.get('text', 'Sample Text'),
-                    font_size=properties.get('font_size', 16),
-                    text_color=(255, 255, 255, 255)
+                    enabled=True,
+                    **properties
                 )
-            else:
-                self.logger.warning(f"Unsupported widget type: {widget_type}")
-                return None
+                
+            elif widget_type == "date":
+                widget = self.unified_view.create_date_widget(
+                    widget_name=widget_id,
+                    x=scene_x,
+                    y=scene_y,
+                    width=scene_width,
+                    height=scene_height,
+                    enabled=True,
+                    **properties
+                )
+                
+            elif widget_type == "time":
+                widget = self.unified_view.create_time_widget(
+                    widget_name=widget_id,
+                    x=scene_x,
+                    y=scene_y,
+                    width=scene_width,
+                    height=scene_height,
+                    enabled=True,
+                    **properties
+                )
+                # Determine shape type
+                shape_type = properties.get('shape_type', 'rectangle')
+                if shape_type == 'circle':
+                    widget = self.unified_view.create_circle_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif shape_type == 'rounded_rectangle':
+                    widget = self.unified_view.create_rounded_rectangle_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                else:  # rectangle
+                    widget = self.unified_view.create_rectangle_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                    
+            elif widget_type == "graph":
+                # Determine graph type
+                graph_type = properties.get('graph_type', 'bar')
+                if graph_type == 'circular':
+                    widget = self.unified_view.create_circular_graph_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                elif graph_type == 'bar':
+                    widget = self.unified_view.create_bar_graph_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
+                else:
+                    widget = self.unified_view.create_graph_widget(
+                        widget_name=widget_id,
+                        x=scene_x,
+                        y=scene_y,
+                        width=scene_width,
+                        height=scene_height,
+                        enabled=True,
+                        **properties
+                    )
             
             if widget:
-                # Store widget reference
+                # Connect metric widgets to live data
+                if widget_type == "metric" and hasattr(widget, 'set_metrics_provider'):
+                    self.logger.info(f"Connecting metric widget {widget_id} to metric manager...")
+                    widget.set_metrics_provider(self.metric_manager)
+                    # Subscribe for live updates
+                    self.metric_manager.subscribe(widget_id, self._create_metric_update_callback(widget))
+                    self.logger.info(f"Connected metric widget {widget_id} to live data")
+                else:
+                    self.logger.debug(f"Widget {widget_id} is not a metric widget or doesn't have set_metrics_provider")
+                
+                # Store widget reference for management
                 if not hasattr(self, 'widgets'):
                     self.widgets = {}
-                self.widgets[widget_id] = widget
-                self.logger.info(f"Created widget: {widget_id} ({widget_type})")
+                self.widgets[widget_id] = {
+                    'widget': widget,
+                    'type': widget_type,
+                    'properties': properties
+                }
+                
+                self.logger.info(f"Created unified widget: {widget_id} ({widget_type}) at ({x},{y})")
                 return widget_id
+            else:
+                self.logger.error(f"Failed to create widget of type: {widget_type}")
+                return None
             
         except Exception as e:
             self.logger.error(f"Error creating widget: {e}")
+            import traceback
+            traceback.print_exc()
         
         return None
     
@@ -475,12 +662,26 @@ class UnifiedController:
             return False
         
         try:
-            widget = self.widgets[widget_id]
-            if self.unified_view and hasattr(self.unified_view, 'remove_widget'):
-                self.unified_view.remove_widget(widget)
-                del self.widgets[widget_id]
-                self.logger.info(f"Removed widget: {widget_id}")
-                return True
+            widget_data = self.widgets[widget_id]
+            
+            # Unsubscribe from metric updates if it's a metric widget
+            if widget_data.get('type') == 'metric':
+                self.metric_manager.unsubscribe(widget_id)
+                self.logger.debug(f"Unsubscribed metric widget {widget_id} from live data")
+            
+            # Remove from unified view using its remove_widget method
+            if self.unified_view and 'widget' in widget_data:
+                self.unified_view.remove_widget(widget_id)
+            
+            # Clean up our reference
+            del self.widgets[widget_id]
+            self.logger.info(f"Removed widget: {widget_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error removing widget {widget_id}: {e}")
+            return False
+            
         except Exception as e:
             self.logger.error(f"Error removing widget: {e}")
         
@@ -492,23 +693,53 @@ class UnifiedController:
             return False
         
         try:
-            widget = self.widgets[widget_id]
+            widget_data = self.widgets[widget_id]
+            widget = widget_data.get('widget')
             
-            # Update position if changed
+            if not widget:
+                return False
+            
+            # Convert position and size to scene coordinates for the widget
+            update_props = properties.copy()
+            
             if 'position' in properties:
                 x, y = properties['position']
-                scene_x = int(x * self.preview_scale)
-                scene_y = int(y * self.preview_scale)
-                widget.setPos(scene_x, scene_y)
+                update_props['x'] = int(x * self.preview_scale)
+                update_props['y'] = int(y * self.preview_scale)
+                del update_props['position']
             
-            # Update other properties via set_properties if available
-            if hasattr(widget, 'set_properties'):
-                widget.set_properties(properties)
+            if 'size' in properties:
+                width, height = properties['size']
+                update_props['width'] = int(width * self.preview_scale)
+                update_props['height'] = int(height * self.preview_scale)
+                del update_props['size']
+            
+            # Update widget properties using its set_properties method
+            widget.set_properties(update_props)
+            
+            # Update stored properties
+            widget_data['properties'].update(properties)
             
             self.logger.info(f"Updated widget: {widget_id}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error updating widget: {e}")
+            self.logger.error(f"Error updating widget {widget_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _create_metric_update_callback(self, widget):
+        """Create a callback for metric widget updates"""
+        def update_callback():
+            """Update widget when metrics change"""
+            try:
+                # Trigger metric update on the widget
+                # This will run on the metric manager's thread, so we need to be careful
+                from PySide6.QtCore import QTimer, Qt
+                # Use a single-shot timer to ensure the update happens on the main thread
+                QTimer.singleShot(0, widget._update_metric)
+            except Exception as e:
+                self.logger.error(f"Error in metric update callback: {e}")
         
-        return False
+        return update_callback

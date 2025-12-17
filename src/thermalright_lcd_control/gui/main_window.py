@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QTabWidget, QFrame, QMessageBox
 
 from .components.config_generator_unified import ConfigGeneratorUnified as ConfigGenerator
 from .components.text_style_manager import TextStyleManager
+from .metrics.metric_data_manager import get_metric_manager
 from .components.controls_manager import ControlsManager
 from .components.preview_manager import PreviewManager
 from .unified_controller import UnifiedController
@@ -244,6 +245,19 @@ class MediaPreviewUI(QMainWindow):
         
         # Set default background
         self.unified.set_background(None)
+    
+    def closeEvent(self, event):
+        """Handle application close - cleanup resources"""
+        try:
+            # Cleanup unified controller (stops metric manager)
+            if hasattr(self, 'unified'):
+                self.unified.cleanup()
+                self.logger.info("Unified controller cleaned up")
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {e}")
+        
+        # Accept the close event
+        event.accept()
 
     def setup_tabs_area(self, parent_layout):
         """Setup tabs area"""
@@ -268,10 +282,10 @@ class MediaPreviewUI(QMainWindow):
         # Widgets tab
         widgets_tab = WidgetsTab(self)
         widgets_tab.widget_added.connect(self._on_widget_added)
-        widgets_tab.widget_removed.connect(self._on_widget_removed)
         widgets_tab.widget_updated.connect(self._on_widget_updated)
         self.tab_widget.addTab(widgets_tab, "Widgets")
         
+        # Add tab widget to layout
         parent_layout.addWidget(self.tab_widget, 2)
     
     def _on_media_selected(self, file_path: str):
@@ -302,14 +316,17 @@ class MediaPreviewUI(QMainWindow):
         self.logger.info(f"New media added: {file_path}")
         # Could update UI or show notification
     
-    def _on_widget_added(self, widget_type: str, properties: dict):
+    def _on_widget_added(self, widget_id: str, widget_type: str, properties: dict):
         """Handle new widget added via widgets tab"""
-        self.logger.info(f"Widget added: {widget_type} - {properties}")
+        self.logger.info(f"Widget added: {widget_id} ({widget_type}) - {properties}")
         
-        # Create actual widget in unified controller
+        # Update preview
+        self.update_preview_only()
+        
+        # Create actual widget in unified controller with the same ID
         if hasattr(self, 'unified') and hasattr(self.unified, 'create_widget'):
-            widget_id = self.unified.create_widget(widget_type, properties)
-            if widget_id:
+            unified_widget_id = self.unified.create_widget(widget_type, properties, widget_id=widget_id)
+            if unified_widget_id:
                 # Store reference
                 if not hasattr(self, 'active_widgets'):
                     self.active_widgets = {}
@@ -318,6 +335,9 @@ class MediaPreviewUI(QMainWindow):
     def _on_widget_removed(self, widget_id: str):
         """Handle widget removal via widgets tab"""
         self.logger.info(f"Widget removed: {widget_id}")
+        
+        # Update preview
+        self.update_preview_only()
         
         # Remove widget from unified controller
         if hasattr(self, 'unified') and hasattr(self.unified, 'remove_widget'):
@@ -331,6 +351,9 @@ class MediaPreviewUI(QMainWindow):
         """Handle widget property updates via widgets tab"""
         self.logger.info(f"Widget updated: {widget_id} - {properties}")
         
+        # Update preview
+        self.update_preview_only()
+        
         # Update widget in unified controller
         if hasattr(self, 'unified') and hasattr(self.unified, 'update_widget'):
             self.unified.update_widget(widget_id, properties)
@@ -338,7 +361,6 @@ class MediaPreviewUI(QMainWindow):
         # Update active widgets
         if hasattr(self, 'active_widgets') and widget_id in self.active_widgets:
             self.active_widgets[widget_id] = properties
-        parent_layout.addWidget(self.tab_widget, 2)
     
     def generate_preview(self):
         """Generate preview/config - delegates to unified controller"""

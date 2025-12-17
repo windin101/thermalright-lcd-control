@@ -11,6 +11,7 @@ from .shape_widgets import RectangleWidget, RoundedRectangleWidget, CircleWidget
 from .metric_widgets import MetricWidget, TemperatureWidget, UsageWidget, FrequencyWidget, NameWidget, RAMWidget, GPUMemoryWidget
 from .graph_widgets import GraphWidget, BarGraphWidget, CircularGraphWidget
 from .property_editor import PropertyEditor
+from .property_editor_dialog import PropertyEditorDialog
 from .layout_manager import LayoutManager
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     'BarGraphWidget',
     'CircularGraphWidget',
     'PropertyEditor',
+    'PropertyEditorDialog',
     'LayoutManager',
 ]
 

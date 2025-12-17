@@ -123,3 +123,27 @@ class ShapeConfig:
     def __post_init__(self):
         if self.border_color is None:
             self.border_color = self.color
+
+
+# YAML serialization support
+import yaml
+
+def shape_type_representer(dumper, data):
+    return dumper.represent_str(data.value)
+
+def label_position_representer(dumper, data):
+    return dumper.represent_str(data.value)
+
+yaml.add_representer(ShapeType, shape_type_representer)
+yaml.add_representer(LabelPosition, label_position_representer)
+
+def shape_type_constructor(loader, node):
+    value = loader.construct_scalar(node)
+    return ShapeType(value)
+
+def label_position_constructor(loader, node):
+    value = loader.construct_scalar(node)
+    return LabelPosition(value)
+
+yaml.add_constructor('!ShapeType', shape_type_constructor)
+yaml.add_constructor('!LabelPosition', label_position_constructor)

@@ -118,7 +118,10 @@ class PathResolver:
         # Handle relative paths
         if not Path(theme_path).is_absolute():
             resources_root = self.get_resources_root()
-            resolved_path = resources_root / theme_path.lstrip("./")
+            relative_path = theme_path.lstrip("./")
+            if relative_path.startswith("resources/"):
+                relative_path = relative_path[len("resources/"):]
+            resolved_path = resources_root / relative_path
             if resolved_path.exists():
                 return str(resolved_path)
 

@@ -31,6 +31,7 @@ class UnifiedBaseItem(QGraphicsObject):
     propertiesChanged = Signal(dict)   # Emitted when properties change
     doubleClicked = Signal()           # Emitted on double-click
     deleteRequested = Signal(str)  # Emitted when widget requests deletion
+    propertiesRequested = Signal(object)  # Emitted when widget requests property editor (emits self)
     
     # Layer constants for z-ordering
     BACKGROUND_LAYER = 0
@@ -256,10 +257,7 @@ class UnifiedBaseItem(QGraphicsObject):
         
         Subclasses should override _draw_widget() for custom drawing.
         """
-        if not self._visible or not self._enabled:
-            return
-        
-        painter.save()
+        logger.debug(f"Painting widget '{self._widget_name}' at ({self.x()}, {self.y()})")
         
         # Apply any transformations needed
         self._apply_painter_transforms(painter)
@@ -269,8 +267,6 @@ class UnifiedBaseItem(QGraphicsObject):
         
         # Draw selection border (on top)
         self._draw_selection_border(painter)
-        
-        painter.restore()
     
     def _apply_painter_transforms(self, painter: QPainter):
         """Apply any transformations to the painter. Override if needed."""
@@ -336,6 +332,9 @@ class UnifiedBaseItem(QGraphicsObject):
             self.preview_scale = properties['preview_scale']
         if 'selected' in properties:
             self.selected = properties['selected']
+        
+        # Trigger redraw
+        self.update()
     
     # ==================== Serialization ====================
     
@@ -450,9 +449,9 @@ class UnifiedBaseItem(QGraphicsObject):
 
     def _show_properties(self):
         """Show widget properties dialog."""
-        print(f"[CONTEXT MENU] Show properties for {self._widget_name}")
-        # In real implementation, this would show a property editor
-
+        logger.debug(f"Requesting property editor for {self._widget_name}")
+        # Emit signal to request property editor
+        self.propertiesRequested.emit(self)
     def _deselect_all(self):
         """Deselect all widgets in scene."""
         print(f"[CONTEXT MENU] Deselect all")
@@ -662,6 +661,7 @@ class UnifiedGraphicsView:
         
         # Connect widget signals
         widget.deleteRequested.connect(self._delete_widget_by_name)
+        widget.propertiesRequested.connect(self._show_property_editor)
 
         
         # Track widget
@@ -671,6 +671,14 @@ class UnifiedGraphicsView:
         widget.positionChanged.connect(self._on_widget_position_changed)
         widget.selectionChanged.connect(self._on_widget_selection_changed)
         widget.doubleClicked.connect(self._on_widget_double_clicked)
+        
+        # Update view to show the new widget
+        self._view.update()
+        self._scene.update()
+        
+        # Update the scene rect around the widget
+        widget_rect = widget.sceneBoundingRect()
+        self._scene.update(widget_rect)
         
         logger.debug(f"Added widget '{widget.widget_name}' ({widget.widget_type})")
         return True
@@ -1136,3 +1144,24 @@ class UnifiedGraphicsView:
     def __repr__(self) -> str:
         return f"<UnifiedGraphicsView with {len(self._widgets)} widgets>"
         self._last_mouse_pos = QPointF()
+
+    def _show_property_editor(self, widget):
+        """Show property editor for widget."""
+        print(f"[UNIFIED VIEW] Showing property editor for {widget.widget_name}")
+        
+        # Import here to avoid circular imports
+        from .property_editor_dialog import PropertyEditorDialog
+        
+        # Create and show dialog
+        dialog = PropertyEditorDialog(self._view)
+        dialog.set_widget(widget)
+        
+        # Connect dialog signals
+        dialog.propertiesApplied.connect(self._on_properties_applied)
+        
+        # Show dialog (modal)
+        dialog.exec()
+    
+    def _on_properties_applied(self, properties: dict):
+        """Handle properties applied from editor."""
+        print(f"[UNIFIED VIEW] Properties applied: {properties}")

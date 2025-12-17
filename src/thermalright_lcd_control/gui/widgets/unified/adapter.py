@@ -25,7 +25,7 @@ class UnifiedToDisplayAdapter:
             return UnifiedToDisplayAdapter._date_to_config(widget, scale)
         elif widget_type == 'time':
             return UnifiedToDisplayAdapter._time_to_config(widget, scale)
-        elif widget_type == 'text':
+        elif widget_type in ['text', 'free_text']:
             return UnifiedToDisplayAdapter._text_to_config(widget, scale)
         elif widget_type == 'metric':
             return UnifiedToDisplayAdapter._metric_to_config(widget, scale)
@@ -118,9 +118,20 @@ class UnifiedToDisplayAdapter:
         
         properties = widget.get_properties()
         
+        # Use label or prefix (some widgets use prefix instead of label)
+        raw_label = properties.get('label', '') or properties.get('prefix', '')
+        
+        # Clean prefix: remove trailing ": " if present
+        if raw_label.endswith(': '):
+            cleaned_label = raw_label[:-2]
+        elif raw_label.endswith(':'):
+            cleaned_label = raw_label[:-1]
+        else:
+            cleaned_label = raw_label
+        
         return MetricConfig(
-            name=properties.get('metric_name', ''),
-            label=properties.get('label', ''),
+            name=properties.get('metric_type', ''),
+            label=cleaned_label,
             position=(device_x, device_y),
             font_size=properties.get('font_size', 16),
             color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('text_color')),

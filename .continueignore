@@ -1,0 +1,11 @@
+# Ignore the specific phantom double-nested path
+/home/leeo/Documents/code/thermalright-lcd-control/**
+
+# Alternatively, ignore any absolute-style paths that might appear nested
+home/leeo/**
+
+# Standard hygiene to reduce indexing noise
+node_modules/
+.git/
+dist/
+build/

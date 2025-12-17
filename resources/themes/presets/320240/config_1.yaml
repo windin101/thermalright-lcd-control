@@ -23,7 +23,7 @@ display:
         enabled: true
         font_size: 24
         format_string: '{label}{value}{unit}'
-        label: ''
+        label: 'CPU'
         name: cpu_temperature
         position:
           x: 54
@@ -33,7 +33,7 @@ display:
         enabled: true
         font_size: 24
         format_string: '{label}{value}{unit}'
-        label: ''
+        label: 'GPU'
         name: gpu_temperature
         position:
           x: 253
@@ -43,7 +43,7 @@ display:
         enabled: true
         font_size: 24
         format_string: '{label}{value}{unit}'
-        label: ''
+        label: 'CPU'
         name: cpu_frequency
         position:
           x: 89
@@ -53,7 +53,7 @@ display:
         enabled: true
         font_size: 24
         format_string: '{label}{value}{unit}'
-        label: ''
+        label: 'GPU'
         name: gpu_frequency
         position:
           x: 90

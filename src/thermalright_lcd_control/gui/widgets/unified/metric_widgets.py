@@ -355,6 +355,7 @@ class MetricWidget(UnifiedBaseItem):
         props = super().get_properties()
         props.update({
             'metric_type': self._metric_type,
+            'label': getattr(self, '_label', ''),
             'update_interval': self._update_interval,
             'unit': self._unit,
             'decimal_places': self._decimal_places,
@@ -374,34 +375,55 @@ class MetricWidget(UnifiedBaseItem):
     
     def set_properties(self, properties: Dict[str, Any]):
         """Set widget properties."""
+        # Convert string values to appropriate types
+        converted_properties = {}
+        for key, value in properties.items():
+            if key in ['font_size', 'update_interval', 'decimal_places']:
+                # Convert to int
+                try:
+                    converted_properties[key] = int(value)
+                except (ValueError, TypeError):
+                    converted_properties[key] = value
+            elif key == 'bold':
+                # Convert to bool
+                if isinstance(value, str):
+                    converted_properties[key] = value.lower() in ['true', 'yes', '1', 'on']
+                else:
+                    converted_properties[key] = bool(value)
+            else:
+                converted_properties[key] = value
+        
         # Handle metric properties
-        if 'metric_type' in properties:
-            self.metric_type = properties['metric_type']
-        if 'update_interval' in properties:
-            self.update_interval = properties['update_interval']
-        if 'unit' in properties:
-            self.unit = properties['unit']
-        if 'decimal_places' in properties:
-            self.decimal_places = properties['decimal_places']
-        if 'prefix' in properties:
-            self.prefix = properties['prefix']
-        if 'suffix' in properties:
-            self.suffix = properties['suffix']
+        if 'metric_type' in converted_properties:
+            self.metric_type = converted_properties['metric_type']
+        if 'update_interval' in converted_properties:
+            self.update_interval = converted_properties['update_interval']
+        if 'unit' in converted_properties:
+            self.unit = converted_properties['unit']
+        if 'decimal_places' in converted_properties:
+            self.decimal_places = converted_properties['decimal_places']
+        if 'prefix' in converted_properties:
+            self.prefix = converted_properties['prefix']
+        if 'suffix' in converted_properties:
+            self.suffix = converted_properties['suffix']
         
         # Handle text properties
-        if 'font_family' in properties:
-            self.font_family = properties['font_family']
-        if 'font_size' in properties:
-            self.font_size = properties['font_size']
-        if 'bold' in properties:
-            self.bold = properties['bold']
-        if 'text_color' in properties:
-            color = properties['text_color']
+        if 'font_family' in converted_properties:
+            self.font_family = converted_properties['font_family']
+        if 'font_size' in converted_properties:
+            self.font_size = converted_properties['font_size']
+        if 'bold' in converted_properties:
+            self.bold = converted_properties['bold']
+        if 'text_color' in converted_properties:
+            color = converted_properties['text_color']
             if isinstance(color, (list, tuple)) and len(color) == 4:
                 self.text_color = QColor(*color)
         
         # Call parent for basic properties
-        super().set_properties(properties)
+        super().set_properties(converted_properties)
+        
+        # Trigger redraw
+        self.update()
     
     # ==================== Cleanup ====================
     

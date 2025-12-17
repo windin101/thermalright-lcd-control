@@ -47,6 +47,10 @@ class ConfigGenerator:
                 }
             }
 
+            # Add color for color background type
+            if config_data["display"]["background"]["type"] == "color":
+                config_data["display"]["background"]["color"] = {"r": 0, "g": 0, "b": 0}
+
             # Add metric configurations
             metric_format_defaults = {
                 "cpu_frequency": "{label}{value}{unit}",

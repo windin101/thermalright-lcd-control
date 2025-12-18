@@ -15,9 +15,14 @@ class MetricType(Enum):
     CPU_USAGE = "cpu_usage"
     CPU_TEMPERATURE = "cpu_temperature"
     CPU_FREQUENCY = "cpu_frequency"
+    CPU_NAME = "cpu_name"
     RAM_USAGE = "ram_usage"
+    RAM_USED = "ram_used"
     GPU_USAGE = "gpu_usage"
     GPU_TEMPERATURE = "gpu_temperature"
+    GPU_FREQUENCY = "gpu_frequency"
+    GPU_NAME = "gpu_name"
+    GPU_MEMORY = "gpu_memory"
     NETWORK_UPLOAD = "network_upload"
     NETWORK_DOWNLOAD = "network_download"
 
@@ -156,6 +161,16 @@ class MetricDataManager:
                         timestamp=timestamp,
                         label="CPU Freq"
                     )
+                
+                # CPU name
+                cpu_name = self.cpu_metrics.get_name()
+                if cpu_name is not None:
+                    self.metrics[MetricType.CPU_NAME] = MetricValue(
+                        value=0,  # Not used for strings
+                        unit="",   # Empty unit for strings
+                        timestamp=timestamp,
+                        label=cpu_name  # Store the name in the label
+                    )
             except Exception as e:
                 self.logger.error(f"Error collecting CPU metrics: {e}")
         
@@ -181,6 +196,37 @@ class MetricDataManager:
                         timestamp=timestamp,
                         label="GPU Temp"
                     )
+                
+                # GPU frequency
+                gpu_freq = self.gpu_metrics.get_frequency()
+                if gpu_freq is not None:
+                    self.metrics[MetricType.GPU_FREQUENCY] = MetricValue(
+                        value=gpu_freq,
+                        unit="MHz",
+                        timestamp=timestamp,
+                        label="GPU Freq"
+                    )
+                
+                # GPU name
+                gpu_name = self.gpu_metrics.gpu_name
+                if gpu_name is not None:
+                    # For string values, we store them as the value but with empty unit
+                    self.metrics[MetricType.GPU_NAME] = MetricValue(
+                        value=0,  # Not used for strings
+                        unit="",   # Empty unit for strings
+                        timestamp=timestamp,
+                        label=gpu_name  # Store the name in the label
+                    )
+                
+                # GPU memory usage
+                gpu_memory = self.gpu_metrics.get_memory_usage()
+                if gpu_memory is not None:
+                    self.metrics[MetricType.GPU_MEMORY] = MetricValue(
+                        value=gpu_memory,
+                        unit="%",
+                        timestamp=timestamp,
+                        label="GPU Memory"
+                    )
             except Exception as e:
                 self.logger.error(f"Error collecting GPU metrics: {e}")
         
@@ -195,6 +241,15 @@ class MetricDataManager:
                     timestamp=timestamp,
                     label="RAM Usage"
                 )
+                
+                # RAM used (in MB)
+                ram_used_mb = ram.used / (1024 * 1024)
+                self.metrics[MetricType.RAM_USED] = MetricValue(
+                    value=ram_used_mb,
+                    unit="MB",
+                    timestamp=timestamp,
+                    label="RAM Used"
+                )
             except Exception as e:
                 self.logger.error(f"Error collecting RAM metrics: {e}")
     
@@ -207,7 +262,13 @@ class MetricDataManager:
         try:
             metric_type = MetricType(metric_type_str)
             metric = self.metrics.get(metric_type)
-            return metric.value if metric else None
+            if metric:
+                # For string metrics, return the label (which contains the string value)
+                if metric_type in [MetricType.CPU_NAME, MetricType.GPU_NAME]:
+                    return metric.label
+                # For numeric metrics, return the value
+                return metric.value
+            return None
         except (ValueError, KeyError):
             return None
     

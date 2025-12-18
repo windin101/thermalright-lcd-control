@@ -211,6 +211,7 @@ class CpuMetrics(Metrics):
             "temperature": self.get_temperature(),
             "usage_percentage": self.get_usage_percentage(),
             "frequency": self.get_frequency(),
+            "name": self.get_name(),
         }
 
     def get_metric_value(self, metric_name) -> str:
@@ -221,6 +222,17 @@ class CpuMetrics(Metrics):
         if metric_name == "cpu_frequency":
             v = self.get_frequency(); return f"{v}" if v is not None else "N/A"
         return "N/A"
+
+    def get_name(self):
+        """Get CPU model name"""
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                for line in f:
+                    if line.startswith('model name'):
+                        return line.split(':')[1].strip()
+        except Exception as e:
+            self.logger.error(f"Error getting CPU name: {e}")
+        return None
 
     def __str__(self):
         t = self.get_temperature()

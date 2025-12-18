@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from PIL.ImageQt import QPixmap
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QPixmap, QIcon  # Ajouter QIcon ici
 from PySide6.QtWidgets import (
@@ -69,10 +69,10 @@ class MediaTab(QWidget):
             layout.addLayout(top_layout)
 
         # Scroll area for thumbnails
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.thumbnails_scroll = QScrollArea()
+        self.thumbnails_scroll.setWidgetResizable(True)
+        self.thumbnails_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.thumbnails_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         # Container widget for thumbnails grid
         self.thumbnails_widget = QWidget()
@@ -81,10 +81,32 @@ class MediaTab(QWidget):
         self.thumbnails_layout.setContentsMargins(10, 10, 10, 10)
 
         # Configure scroll area
-        scroll_area.setWidget(self.thumbnails_widget)
+        self.thumbnails_scroll.setWidget(self.thumbnails_widget)
 
-        layout.addWidget(scroll_area)
+        layout.addWidget(self.thumbnails_scroll)
 
+    def resizeEvent(self, event):
+        """
+        Handle resize events to re-layout thumbnails responsively.
+        Uses throttling to avoid excessive reloads during resize.
+        """
+        super().resizeEvent(event)
+        
+        # Throttle resize events - only reload after resize stops
+        if hasattr(self, '_resize_timer'):
+            self._resize_timer.stop()
+        else:
+            self._resize_timer = QTimer()
+            self._resize_timer.setSingleShot(True)
+            self._resize_timer.timeout.connect(self._on_resize_complete)
+        
+        # Start/restart timer (200ms delay)
+        self._resize_timer.start(200)
+    
+    def _on_resize_complete(self):
+        """Handle resize completion - reload media files."""
+        self.load_media_files()
+    
     def add_media_files(self):
         """Open file dialog to add single or multiple media files"""
         # Only allow adding media for backgrounds tab
@@ -426,8 +448,13 @@ class MediaTab(QWidget):
 
                 # Create thumbnails in grid (4 columns)
                 row, col = 0, 0
-                max_cols = 8
-
+                # Calculate max columns based on available width
+                # Calculate max columns based on available width
+                # Account for scrollbars and margins (subtract 40px)
+                scroll_width = max(100, self.thumbnails_scroll.viewport().width() - 40)
+                thumbnail_width = 140  # Media thumbnail width (smaller than themes)
+                spacing = 15  # Reduced spacing
+                max_cols = max(2, scroll_width // (thumbnail_width + spacing))
                 for i, file_path in enumerate(files):
                     if file_path.is_dir():
                         collection_widget = self.create_collection_thumbnail(file_path)

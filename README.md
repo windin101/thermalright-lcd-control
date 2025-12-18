@@ -36,6 +36,14 @@ and added the option to select a collection of images to cycle through on the di
 
 ## Changelog
 
+### [1.4.0] - 2025-12-18
+- 📊 **Enhanced System Monitoring**: Real-time CPU, GPU, and RAM metrics display
+- 🎨 **Dynamic GUI Layout**: Equal column layout with organized control sections
+- 🔧 **Widget System Improvements**: Fixed creation errors and enhanced data display
+- 📈 **Comprehensive Metrics**: Added CPU name, GPU name, frequency, memory, and RAM usage
+- 📐 **Responsive Design**: Equal column distribution with minimum window sizing
+- 🎯 **Improved User Experience**: Logical control organization (preview top, buttons middle, settings bottom)
+
 ### [1.3.0] - 2025-12-17
 - ✨ **Theme Management**: Save and load reusable themes through the Themes tab
 - 🎬 **Video Background Previews**: GUI now shows video thumbnails instead of black screens

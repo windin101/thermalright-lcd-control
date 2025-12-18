@@ -5,6 +5,50 @@ All notable changes to Thermalright LCD Control will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-12-18
+
+### Added
+- **Enhanced Metric Data Collection**: Added CPU name, GPU name, GPU frequency, GPU memory, and RAM used metrics
+- **Dynamic GUI Layout**: Equal column layout with preview at top, controls in middle, and screen settings at bottom
+- **Improved Widget System**: Fixed widget creation errors and enhanced metric data display
+- **Comprehensive System Monitoring**: Real-time display of all major system metrics (CPU, GPU, RAM)
+
+### Changed
+- **GUI Layout Reorganization**: 
+  - Equal column distribution (1:1 stretch ratio)
+  - Preview area positioned at top of left column
+  - Action controls (buttons) in middle section
+  - Screen controls at bottom of left column
+  - Added minimum window size (1000x700) for dynamic resizing
+- **Metric Data Manager**: Enhanced to handle both numeric and string metrics properly
+- **Widget Creation**: Fixed variable reference errors in unified controller
+
+### Fixed
+- **Widget Creation Errors**: Resolved NameError and TypeError in widget instantiation
+- **Missing Metric Display**: Widgets now properly display CPU name, GPU metrics, and RAM usage
+- **Layout Responsiveness**: GUI now resizes properly with equal column distribution
+- **Metric Data Types**: Proper handling of string metrics (CPU/GPU names) vs numeric metrics
+
+### Technical Details
+
+#### GUI Layout Overhaul
+- **Problem**: Unequal columns and poor control organization
+- **Solution**: Equal column layout with logical control stacking
+- **Files Modified**:
+  - `src/thermalright_lcd_control/gui/main_window.py`
+  - Reorganized QVBoxLayout stacking in left column
+  - Added minimum window size constraints
+  - Implemented 1:1 stretch factors for equal columns
+
+#### Metric Data Integration
+- **Problem**: Widgets not displaying real system data
+- **Solution**: Comprehensive metric collection and proper data type handling
+- **Files Modified**:
+  - `src/thermalright_lcd_control/gui/metrics/metric_data_manager.py`
+  - `src/thermalright_lcd_control/gui/unified_controller.py`
+  - Added CPU_NAME, GPU_NAME, GPU_FREQUENCY, GPU_MEMORY, RAM_USED metrics
+  - Fixed widget creation with corrected **properties usage
+
 ## [1.3.0] - 2025-12-17
 
 ### Added

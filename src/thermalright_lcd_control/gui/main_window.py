@@ -40,6 +40,9 @@ class MediaPreviewUI(QMainWindow):
         
         self.setWindowTitle(f"ThermalRight LCD Control: {title_info}")
         
+        # Set minimum window size for proper layout
+        self.setMinimumSize(1000, 700)  # Allow dynamic resizing
+        
         # Initialize components
         self.text_style_manager = TextStyleManager()
         self.text_style = self.text_style_manager.config  # Backward compatibility
@@ -99,51 +102,68 @@ class MediaPreviewUI(QMainWindow):
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Left panel (controls)
-        left_widget = QWidget()
-        left_widget.setMinimumWidth(350)
-        left_layout = QHBoxLayout(left_widget)
+        # ========== LEFT COLUMN - Preview + Controls ==========
+        left_column = QWidget()
+        left_layout = QVBoxLayout(left_column)
+        left_layout.setSpacing(10)
         
-        # Controls manager
-        self.controls_manager = ControlsManager(self, self.text_style, self.metric_widgets)
-        left_layout.addWidget(self.controls_manager.create_controls_widget(), 6)
-        
-        # Right panel (preview)
-        right_widget = QWidget()
-        right_widget.setMinimumWidth(500)
-        right_layout = QVBoxLayout(right_widget)
-        
-        # Setup preview area via unified controller
-        self.setup_preview_area(right_layout)
-        
-        # Add panels to main layout
-        main_layout.addWidget(left_widget, 4)
-        main_layout.addWidget(right_widget, 6)
-        
-        # Setup tabs area
-        self.setup_tabs_area(right_layout)
-    
-    def setup_preview_area(self, parent_layout):
-        """Setup preview area - delegates to unified controller"""
-        # Create preview area widget
-        preview_area = QWidget()
-        preview_layout = QVBoxLayout(preview_area)
+        # Preview area at top
+        preview_container = QWidget()
+        preview_container.setMinimumSize(480, 360)
+        preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Set minimum size for preview area
-        preview_area.setMinimumSize(480, 360)
-        
-        # Let unified controller setup the preview
-        if self.unified.setup_preview_area(preview_area):
+        # Setup preview area via unified controller
+        if self.unified.setup_preview_area(preview_container):
             # Create initial widgets
             self.unified.create_initial_widgets()
             
             # Setup preview manager
             self.setup_preview_manager()
         
-        parent_layout.addWidget(preview_area, 8)
+        left_layout.addWidget(preview_container, 6)  # Preview takes most space
+        
+        # Action buttons below preview
+        self.controls_manager = ControlsManager(self, self.text_style, self.metric_widgets)
+        action_controls = self.controls_manager._create_action_controls()
+        left_layout.addWidget(action_controls, 0)  # Action buttons
+        
+        # Screen controls below action buttons
+        screen_controls = self.controls_manager.create_controls_widget()
+        left_layout.addWidget(screen_controls, 4)  # Screen controls
+        
+        # ========== RIGHT COLUMN - Tabs ==========
+        right_column = QWidget()
+        right_layout = QVBoxLayout(right_column)
+        
+        # Setup tabs area
+        self.setup_tabs_area(right_layout)
+        
+        # ========== ADD COLUMNS TO MAIN LAYOUT ==========
+        main_layout.addWidget(left_column, 1)  # 50% width
+        main_layout.addWidget(right_column, 1)  # 50% width
+    
+    def setup_preview_area(self, parent_widget):
+        """
+        Setup preview area in a widget container.
+        Used by unified controller.
+        
+        Args:
+            parent_widget: The widget to contain the preview area
+        """
+        # Let unified controller setup the preview in the provided widget
+        if self.unified.setup_preview_area(parent_widget):
+            # Create initial widgets
+            self.unified.create_initial_widgets()
+            
+            # Setup preview manager
+            self.setup_preview_manager()
+            return True
+        return False
     
 
     def setup_preview_manager(self):
@@ -263,7 +283,16 @@ class MediaPreviewUI(QMainWindow):
         """Setup tabs area"""
         self.tab_widget = QTabWidget()
         
-        # Media tab
+        # ========== TAB ORDER: Themes → Media → Widgets ==========
+        
+        # Themes tab (FIRST)
+        from .tabs.themes_tab import ThemesTab
+        themes_dir = f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{self.device_width}{self.device_height}"
+        themes_tab = ThemesTab(themes_dir, dev_width=self.device_width, dev_height=self.device_height)
+        themes_tab.theme_selected.connect(self.on_theme_selected)  # Connect theme selection signal
+        self.tab_widget.addTab(themes_tab, "Themes")
+        
+        # Media tab (SECOND)
         from .tabs.media_tab import MediaTab
         media_tab = MediaTab(self.backgrounds_dir, self.config, "Media")
         # Connect media tab signals
@@ -271,22 +300,15 @@ class MediaPreviewUI(QMainWindow):
         media_tab.media_added.connect(self._on_media_added)
         self.tab_widget.addTab(media_tab, "Media")
         
-        # Themes tab  
-        from .tabs.themes_tab import ThemesTab
+        # Widgets tab (THIRD)
         from .tabs.widgets_tab import WidgetsTab
-        themes_dir = f"{self.config.get('paths', {}).get('themes_dir', './themes')}/{self.device_width}{self.device_height}"
-        themes_tab = ThemesTab(themes_dir, dev_width=self.device_width, dev_height=self.device_height)
-        themes_tab.theme_selected.connect(self.on_theme_selected)  # Connect theme selection signal
-        self.tab_widget.addTab(themes_tab, "Themes")
-        
-        # Widgets tab
         widgets_tab = WidgetsTab(self)
         widgets_tab.widget_added.connect(self._on_widget_added)
         widgets_tab.widget_updated.connect(self._on_widget_updated)
         self.tab_widget.addTab(widgets_tab, "Widgets")
         
         # Add tab widget to layout
-        parent_layout.addWidget(self.tab_widget, 2)
+        parent_layout.addWidget(self.tab_widget)
     
     def _on_media_selected(self, file_path: str):
         """Handle media file selection from media tab"""
@@ -324,8 +346,11 @@ class MediaPreviewUI(QMainWindow):
         self.update_preview_only()
         
         # Create actual widget in unified controller with the same ID
+        # Use widget type from properties (e.g., "metric", "text", "date", "time")
+        # not the palette widget type (e.g., "cpu_usage", "gpu_temperature")
+        widget_type_from_props = properties.get('type', 'metric')
         if hasattr(self, 'unified') and hasattr(self.unified, 'create_widget'):
-            unified_widget_id = self.unified.create_widget(widget_type, properties, widget_id=widget_id)
+            unified_widget_id = self.unified.create_widget(widget_type_from_props, properties, widget_id=widget_id)
             if unified_widget_id:
                 # Store reference
                 if not hasattr(self, 'active_widgets'):

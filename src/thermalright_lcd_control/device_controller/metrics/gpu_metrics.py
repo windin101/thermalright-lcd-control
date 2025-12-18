@@ -617,18 +617,85 @@ class GpuMetrics(Metrics):
             pass
         return None
 
+    def get_memory_usage(self):
+        """Get GPU memory usage percentage"""
+        try:
+            if self.gpu_vendor == "nvidia":
+                return self._get_nvidia_memory_usage()
+            if self.gpu_vendor == "amd":
+                return self._get_amd_memory_usage()
+            if self.gpu_vendor == "intel":
+                return self._get_intel_memory_usage()
+            self.logger.warning("No GPU detected for memory usage")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error reading GPU memory usage: {e}")
+            return None
+
+    def _get_nvidia_memory_usage(self):
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=4
+            )
+            if r.returncode == 0:
+                line = r.stdout.strip().split('\n')[0]
+                used, total = [int(x.strip()) for x in line.split(',')]
+                if total > 0:
+                    return round((used / total) * 100, 1)
+        except Exception:
+            pass
+        return None
+
+    def _get_amd_memory_usage(self):
+        """Get AMD GPU memory usage percentage"""
+        if not self.amd_card_path:
+            return None
+        try:
+            # Try visible VRAM first (what applications see)
+            used_file = os.path.join(self.amd_card_path, "mem_info_vis_vram_used")
+            total_file = os.path.join(self.amd_card_path, "mem_info_vis_vram_total")
+            
+            if os.path.exists(used_file) and os.path.exists(total_file):
+                with open(used_file) as f:
+                    used = int(f.read().strip())
+                with open(total_file) as f:
+                    total = int(f.read().strip())
+                if total > 0:
+                    return round((used / total) * 100, 1)
+            
+            # Fallback to total VRAM
+            used_file = os.path.join(self.amd_card_path, "mem_info_vram_used")
+            total_file = os.path.join(self.amd_card_path, "mem_info_vram_total")
+            
+            if os.path.exists(used_file) and os.path.exists(total_file):
+                with open(used_file) as f:
+                    used = int(f.read().strip())
+                with open(total_file) as f:
+                    total = int(f.read().strip())
+                if total > 0:
+                    return round((used / total) * 100, 1)
+        except Exception as e:
+            self.logger.error(f"Error reading AMD GPU memory: {e}")
+        return None
+
+    def _get_intel_memory_usage(self):
+        # Intel GPUs typically don't have dedicated memory to monitor
+        return None
+
     # ---------- bundles ----------
 
     def get_all_metrics(self):
         self.logger.debug("Collecting all GPU metrics")
         if self.gpu_vendor is None:
-            return {'vendor': None, 'name': None, 'temperature': None, 'usage_percentage': None, 'frequency': None}
+            return {'vendor': None, 'name': None, 'temperature': None, 'usage_percentage': None, 'frequency': None, 'memory_usage': None}
         return {
             'vendor': self.gpu_vendor,
             'name': self.gpu_name,
             'temperature': self.get_temperature(),
             'usage_percentage': self.get_usage_percentage(),
-            'frequency': self.get_frequency()
+            'frequency': self.get_frequency(),
+            'memory_usage': self.get_memory_usage()
         }
 
     def get_metric_value(self, metric_name) -> str:

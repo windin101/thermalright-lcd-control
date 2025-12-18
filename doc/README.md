@@ -78,7 +78,7 @@ When adding new documentation:
 
 ## Version Information
 
-- **Current Version**: 1.3.0 (see `CHANGELOG.md`)
-- **Last Updated**: 2025-12-17
+- **Current Version**: 1.4.0 (see `CHANGELOG.md`)
+- **Last Updated**: 2025-12-18
 - **Documentation Format**: Markdown with code examples</content>
 <parameter name="filePath">/home/leeo/Documents/code/thermalright-lcd-control/doc/README.md

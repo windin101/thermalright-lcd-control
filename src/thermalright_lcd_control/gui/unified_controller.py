@@ -477,6 +477,9 @@ class UnifiedController:
             scene_width = int(width * self.preview_scale)
             scene_height = int(height * self.preview_scale)
             
+            # Create a copy of properties without widget_name to avoid duplicate keyword arguments
+            widget_properties = {k: v for k, v in properties.items() if k != 'widget_name'}
+            
             # Create widget using appropriate UnifiedGraphicsView method
             widget = None
             
@@ -493,7 +496,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif 'usage' in metric_type.lower() or 'cpu' in label.lower() or 'gpu' in label.lower():
                     widget = self.unified_view.create_usage_widget(
@@ -503,7 +506,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif 'frequency' in metric_type.lower() or 'freq' in label.lower():
                     widget = self.unified_view.create_frequency_widget(
@@ -513,7 +516,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif 'ram' in metric_type.lower() or 'memory' in label.lower():
                     widget = self.unified_view.create_ram_widget(
@@ -523,7 +526,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif 'gpu' in label.lower() and 'memory' in label.lower():
                     widget = self.unified_view.create_gpu_memory_widget(
@@ -533,7 +536,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif 'name' in metric_type.lower():
                     widget = self.unified_view.create_name_widget(
@@ -543,7 +546,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 else:
                     # Generic metric widget
@@ -554,7 +557,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                     
             elif widget_type == "text":
@@ -566,7 +569,7 @@ class UnifiedController:
                     width=scene_width,
                     height=scene_height,
                     enabled=True,
-                    **properties
+                    **widget_properties
                 )
                 
             elif widget_type == "date":
@@ -577,7 +580,7 @@ class UnifiedController:
                     width=scene_width,
                     height=scene_height,
                     enabled=True,
-                    **properties
+                    **widget_properties
                 )
                 
             elif widget_type == "time":
@@ -588,40 +591,8 @@ class UnifiedController:
                     width=scene_width,
                     height=scene_height,
                     enabled=True,
-                    **properties
+                    **widget_properties
                 )
-                # Determine shape type
-                shape_type = properties.get('shape_type', 'rectangle')
-                if shape_type == 'circle':
-                    widget = self.unified_view.create_circle_widget(
-                        widget_name=widget_id,
-                        x=scene_x,
-                        y=scene_y,
-                        width=scene_width,
-                        height=scene_height,
-                        enabled=True,
-                        **properties
-                    )
-                elif shape_type == 'rounded_rectangle':
-                    widget = self.unified_view.create_rounded_rectangle_widget(
-                        widget_name=widget_id,
-                        x=scene_x,
-                        y=scene_y,
-                        width=scene_width,
-                        height=scene_height,
-                        enabled=True,
-                        **properties
-                    )
-                else:  # rectangle
-                    widget = self.unified_view.create_rectangle_widget(
-                        widget_name=widget_id,
-                        x=scene_x,
-                        y=scene_y,
-                        width=scene_width,
-                        height=scene_height,
-                        enabled=True,
-                        **properties
-                    )
                     
             elif widget_type == "graph":
                 # Determine graph type
@@ -634,7 +605,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 elif graph_type == 'bar':
                     widget = self.unified_view.create_bar_graph_widget(
@@ -644,7 +615,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
                 else:
                     widget = self.unified_view.create_graph_widget(
@@ -654,7 +625,7 @@ class UnifiedController:
                         width=scene_width,
                         height=scene_height,
                         enabled=True,
-                        **properties
+                        **widget_properties
                     )
             
             if widget:

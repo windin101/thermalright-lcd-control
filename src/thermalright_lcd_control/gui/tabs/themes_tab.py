@@ -62,19 +62,27 @@ class ThemesTab(QWidget):
         main_layout.addLayout(header_layout)
 
         # Scrollable area for thumbnails
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self.thumbnails_widget = QWidget()
         self.thumbnails_layout = QGridLayout(self.thumbnails_widget)
         self.thumbnails_layout.setSpacing(10)
         self.thumbnails_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
-        scroll_area.setWidget(self.thumbnails_widget)
-        main_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(self.thumbnails_widget)
+        main_layout.addWidget(self.scroll_area)
 
+
+    def resizeEvent(self, event):
+        """
+        Handle resize events to re-layout theme thumbnails responsively.
+        """
+        super().resizeEvent(event)
+        # Reload themes to recalculate grid layout
+        self.load_themes()
     def load_themes(self):
         """Load theme files from themes directory"""
         self.cleanup_thumbnails()
@@ -101,8 +109,23 @@ class ThemesTab(QWidget):
 
         # Create thumbnails
         row, col = 0, 0
-        max_cols = 8  # Number of thumbnails per row
-
+        # Calculate max columns based on available width - AGGRESSIVE
+        # Use a default width if viewport is not yet properly sized
+        try:
+            scroll_width = self.scroll_area.viewport().width()
+            if scroll_width <= 0:
+                scroll_width = 800  # Default fallback width
+        except:
+            scroll_width = 800  # Default fallback width
+            
+        # AGGRESSIVE: Smaller thumbnail estimate to wrap later
+        thumbnail_width = 140  # Reduced from 200
+        spacing = 10  # Reduced spacing
+        max_cols = max(2, scroll_width // (thumbnail_width + spacing))
+        # Add extra column if we have significant space
+        remaining_space = scroll_width % (thumbnail_width + spacing)
+        if max_cols > 2 and remaining_space > thumbnail_width * 0.6:
+            max_cols += 1
         for yaml_file in yaml_files:
             try:
                 theme_name = self.get_theme_display_name(yaml_file)

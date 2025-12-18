@@ -56,9 +56,23 @@ class UnifiedToDisplayAdapter:
         # Get properties from widget
         properties = widget.get_properties()
         
+        # Calculate scaled font size based on widget height
+        # Same scaling formula as in widget rendering
+        base_height = 30  # Default widget height in preview
+        base_font_size = properties.get('font_size', 16)
+        
+        # Scale factor: how much taller/shorter widget is compared to default
+        height_scale = height / base_height
+        
+        # Calculate scaled font size (for device)
+        scaled_font_size = int(round(base_font_size * height_scale))
+        
+        # Apply min/max limits for device display
+        scaled_font_size = max(8, min(72, scaled_font_size))
+        
         return DateConfig(
             position=(device_x, device_y),
-            font_size=properties.get('font_size', 16),
+            font_size=scaled_font_size,
             color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('text_color')),
             show_weekday=properties.get('show_weekday', True),
             show_year=properties.get('show_year', False),
@@ -113,8 +127,15 @@ class UnifiedToDisplayAdapter:
     def _metric_to_config(widget, scale: float) -> MetricConfig:
         """Convert MetricWidget to MetricConfig"""
         pos = widget.pos()
-        device_x = int(pos.x() / scale)
-        device_y = int(pos.y() / scale)
+        width = getattr(widget, '_width', 120)  # Default width if not available
+        height = getattr(widget, '_height', 25)  # Default height if not available
+        
+        # Calculate centered position (text is drawn from middle with anchor='mm')
+        centered_x = pos.x() + width / 2
+        centered_y = pos.y() + height / 2
+        
+        device_x = int(centered_x / scale)
+        device_y = int(centered_y / scale)
         
         properties = widget.get_properties()
         
@@ -129,11 +150,28 @@ class UnifiedToDisplayAdapter:
         else:
             cleaned_label = raw_label
         
+        # Calculate scaled font size based on widget height
+        # Same scaling formula as in widget rendering
+        base_height = 30  # Default widget height in preview
+        base_font_size = properties.get('font_size', 16)
+        
+        # Get widget height from properties (in preview coordinates)
+        widget_height = properties.get('height', base_height)
+        
+        # Scale factor: how much taller/shorter widget is compared to default
+        height_scale = widget_height / base_height
+        
+        # Calculate scaled font size (for device)
+        scaled_font_size = int(round(base_font_size * height_scale))
+        
+        # Apply min/max limits for device display
+        scaled_font_size = max(8, min(72, scaled_font_size))
+        
         return MetricConfig(
             name=properties.get('metric_type', ''),
             label=cleaned_label,
             position=(device_x, device_y),
-            font_size=properties.get('font_size', 16),
+            font_size=scaled_font_size,
             color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('text_color')),
             enabled=getattr(widget, 'enabled', True),
             label_position=LabelPosition.LEFT,

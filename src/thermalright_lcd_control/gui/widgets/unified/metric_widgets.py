@@ -318,9 +318,30 @@ class MetricWidget(UnifiedBaseItem):
         # DO NOT use painter.save()/restore() here!
         # The parent paint() method already handles painter state.
         
+        # DEBUG: Draw widget bounds background
+        painter.save()
+        painter.setBrush(QBrush(QColor(255, 0, 0, 30)))  # Semi-transparent red
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(0, 0, width, height)
+        painter.restore()
+        
+        # Calculate font size based on widget height
+        # Base font size scales with widget height, with preview scale applied
+        # Minimum font size: 8px, Maximum: 72px
+        base_height = 30  # Default widget height
+        base_font_size = self._font_size  # User's preferred font size
+        
+        # Scale factor: how much taller/shorter widget is compared to default
+        height_scale = height / base_height
+        
+        # Calculate scaled font size
+        scaled_font_size = int(round(base_font_size * height_scale * self._preview_scale))
+        
+        # Apply min/max limits
+        scaled_font_size = max(8, min(72, scaled_font_size))
+        
         # Set font
         font = QFont(self._font_family)
-        scaled_font_size = int(round(self._font_size * self._preview_scale))
         font.setPixelSize(scaled_font_size)
         font.setBold(self._bold)
         painter.setFont(font)

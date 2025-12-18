@@ -76,6 +76,14 @@ class UnifiedBaseItem(QGraphicsObject):
         self._selection_border_width = 3  # Thicker for debugging
         self._selection_padding = 6  # More padding for debugging
         
+        # Resize state
+        self._resizing = False
+        self._resize_edge = None  # 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'
+        self._resize_start_pos = None
+        self._resize_start_size = None
+        self._resize_start_mouse_pos = None
+        self._resize_handle_size = 8  # Size of resize handles in pixels
+        
         # Enable mouse tracking
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.ItemIsMovable, False)  # We handle dragging manually
@@ -209,23 +217,6 @@ class UnifiedBaseItem(QGraphicsObject):
             self.positionChanged.emit(self.pos())
         
         return super().itemChange(change, value)
-        """Handle item changes (e.g., position changes, selection)."""
-        if change == QGraphicsItem.ItemSelectedChange:
-            # QGraphicsView is changing our selection state
-            # Update our _selected property to match
-            self._selected = value
-            self.selectionChanged.emit(value)
-            return value
-        elif change == QGraphicsItem.ItemPositionChange:
-            # Store the new position
-            new_pos = value
-            # You could add constraints here if needed
-            return new_pos
-        elif change == QGraphicsItem.ItemPositionHasChanged:
-            # Position has changed, emit signal
-            self.positionChanged.emit(self.pos())
-        
-        return super().itemChange(change, value)
     
     def _draw_selection_border(self, painter: QPainter):
         """Draw selection border around widget."""
@@ -246,6 +237,41 @@ class UnifiedBaseItem(QGraphicsObject):
         painter.drawRect(-padding, -padding,
                         self._width + padding * 2,
                         self._height + padding * 2)
+        
+        # Draw resize handles
+        if self._selected:
+            handle_size = self._resize_handle_size
+            half_handle = handle_size / 2
+            
+            # Fill color for handles
+            painter.setBrush(QBrush(self._selection_border_color))
+            painter.setPen(Qt.NoPen)
+            
+            # Define handle positions (relative to widget with padding)
+            left = -padding
+            right = self._width + padding
+            top = -padding
+            bottom = self._height + padding
+            
+            # Corner handles
+            handles = [
+                (left - half_handle, top - half_handle, handle_size, handle_size),  # NW
+                (right - half_handle, top - half_handle, handle_size, handle_size),  # NE
+                (right - half_handle, bottom - half_handle, handle_size, handle_size),  # SE
+                (left - half_handle, bottom - half_handle, handle_size, handle_size),  # SW
+            ]
+            
+            # Edge handles (centered on edges)
+            handles.extend([
+                (left - half_handle, (top + bottom) / 2 - half_handle, handle_size, handle_size),  # W
+                (right - half_handle, (top + bottom) / 2 - half_handle, handle_size, handle_size),  # E
+                ((left + right) / 2 - half_handle, top - half_handle, handle_size, handle_size),  # N
+                ((left + right) / 2 - half_handle, bottom - half_handle, handle_size, handle_size),  # S
+            ])
+            
+            # Draw all handles
+            for x, y, w, h in handles:
+                painter.drawRect(x, y, w, h)
         
         painter.restore()
     
@@ -359,6 +385,25 @@ class UnifiedBaseItem(QGraphicsObject):
     def mousePressEvent(self, event):
         """Handle mouse press event."""
         if event.button() == Qt.LeftButton:
+            # Check if clicking on resize edge
+            if self._selected:
+                edge = self._get_resize_edge(event.pos())
+                if edge:
+                    # Start resizing
+                    self._resizing = True
+                    self._resize_edge = edge
+                    self._resize_start_size = (self._width, self._height)
+                    self._resize_start_pos = (self.x(), self.y())
+                    self._resize_start_mouse_pos = event.scenePos()
+                    
+                    # Disable dragging while resizing
+                    self._dragging = False
+                    self.setFlag(QGraphicsItem.ItemIsMovable, False)
+                    self.grabMouse()
+                    event.accept()
+                    return
+            
+            # Otherwise start dragging
             self._dragging = True
             self.setCursor(Qt.ClosedHandCursor)
             
@@ -373,7 +418,50 @@ class UnifiedBaseItem(QGraphicsObject):
     
     def mouseMoveEvent(self, event):
         """Handle mouse move event."""
-        if self._dragging:
+        if self._resizing and self._resize_edge:
+            # Handle resize
+            current_pos = event.scenePos()
+            
+            dx = current_pos.x() - self._resize_start_mouse_pos.x()
+            dy = current_pos.y() - self._resize_start_mouse_pos.y()
+            
+            start_width, start_height = self._resize_start_size
+            start_x, start_y = self._resize_start_pos
+            
+            new_width = start_width
+            new_height = start_height
+            new_x = start_x
+            new_y = start_y
+            
+            edge = self._resize_edge
+            
+            # Apply resize based on edge
+            if 'e' in edge:  # Right edge
+                new_width = max(10, start_width + dx)
+            if 'w' in edge:  # Left edge
+                new_width = max(10, start_width - dx)
+                new_x = start_x + dx
+            
+            if 's' in edge:  # Bottom edge
+                new_height = max(10, start_height + dy)
+            if 'n' in edge:  # Top edge
+                new_height = max(10, start_height - dy)
+                new_y = start_y + dy
+            
+            # Constrain to scene boundaries
+            if self.scene():
+                scene_rect = self.scene().sceneRect()
+                new_x = max(scene_rect.left(), min(new_x, scene_rect.right() - new_width))
+                new_y = max(scene_rect.top(), min(new_y, scene_rect.bottom() - new_height))
+            
+            # Update widget
+            self.set_size(new_width, new_height)
+            self.setPos(new_x, new_y)
+            self.update()
+            
+            event.accept()
+            
+        elif self._dragging:
             # Get current mouse position
             current_pos = event.scenePos()
             
@@ -404,11 +492,33 @@ class UnifiedBaseItem(QGraphicsObject):
     
     def mouseReleaseEvent(self, event):
         """Handle mouse release event."""
-        if event.button() == Qt.LeftButton and self._dragging:
-            self._dragging = False
-            self.setCursor(Qt.ArrowCursor)
-            # Emit position changed signal
-            self.positionChanged.emit(self.pos())
+        if event.button() == Qt.LeftButton:
+            if self._resizing:
+                # Finish resizing
+                self._resizing = False
+                self._resize_edge = None
+                self._resize_start_size = None
+                self._resize_start_pos = None
+                self._resize_start_mouse_pos = None
+                
+                # Restore mouse capture
+                self.ungrabMouse()
+                self.setFlag(QGraphicsItem.ItemIsMovable, True)
+                
+                # Update cursor
+                self.setCursor(Qt.ArrowCursor)
+                
+                # Emit signals
+                self.positionChanged.emit(self.pos())
+                self.propertiesChanged.emit(self.get_properties())
+                
+                event.accept()
+            
+            elif self._dragging:
+                self._dragging = False
+                self.setCursor(Qt.ArrowCursor)
+                # Emit position changed signal
+                self.positionChanged.emit(self.pos())
         
         super().mouseReleaseEvent(event)
     
@@ -498,7 +608,78 @@ class UnifiedBaseItem(QGraphicsObject):
         return f"<UnifiedBaseItem '{self._widget_name}' ({self._widget_type})>"
 
 
-class UnifiedGraphicsView:
+
+    def hoverMoveEvent(self, event):
+        """Handle hover move event for cursor changes."""
+        if self._selected and not self._resizing:
+            # Update cursor based on resize edge
+            edge = self._get_resize_edge(event.pos())
+            
+            if edge == 'n' or edge == 's':
+                self.setCursor(Qt.SizeVerCursor)
+            elif edge == 'e' or edge == 'w':
+                self.setCursor(Qt.SizeHorCursor)
+            elif edge == 'nw' or edge == 'se':
+                self.setCursor(Qt.SizeFDiagCursor)
+            elif edge == 'ne' or edge == 'sw':
+                self.setCursor(Qt.SizeBDiagCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+        
+        super().hoverMoveEvent(event)
+    
+    def _get_resize_edge(self, pos: QPointF):
+        """
+        Determine which resize edge the mouse is near.
+        Returns: 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw', or None
+        """
+        if not self._selected:
+            return None
+        
+        padding = self._selection_padding
+        handle_size = self._resize_handle_size
+        half_handle = handle_size / 2
+        
+        # Widget bounds with padding
+        left = -padding
+        right = self._width + padding
+        top = -padding
+        bottom = self._height + padding
+        
+        x, y = pos.x(), pos.y()
+        
+        # Check corners first (they have priority)
+        if (x >= left - half_handle and x <= left + half_handle and
+            y >= top - half_handle and y <= top + half_handle):
+            return 'nw'
+        elif (x >= right - half_handle and x <= right + half_handle and
+              y >= top - half_handle and y <= top + half_handle):
+            return 'ne'
+        elif (x >= left - half_handle and x <= left + half_handle and
+              y >= bottom - half_handle and y <= bottom + half_handle):
+            return 'sw'
+        elif (x >= right - half_handle and x <= right + half_handle and
+              y >= bottom - half_handle and y <= bottom + half_handle):
+            return 'se'
+        
+        # Check edges
+        elif x >= left - half_handle and x <= left + half_handle:
+            if y >= top and y <= bottom:
+                return 'w'
+        elif x >= right - half_handle and x <= right + half_handle:
+            if y >= top and y <= bottom:
+                return 'e'
+        elif y >= top - half_handle and y <= top + half_handle:
+            if x >= left and x <= right:
+                return 'n'
+        elif y >= bottom - half_handle and y <= bottom + half_handle:
+            if x >= left and x <= right:
+                return 's'
+        
+        return None
+class UnifiedGraphicsView(QObject):
     """
     Manager for unified widgets in a QGraphicsView.
     
@@ -509,15 +690,12 @@ class UnifiedGraphicsView:
     - Widget lookup and management
     """
     
+    
+    # Signals
+    widgetDeleted = Signal(str)  # Emitted when widget is deleted (widget_name)
+    widgetAdded = Signal(object)  # Emitted when widget is added (widget object)
+    
     def __init__(self, parent=None):
-        """
-        Initialize unified graphics view.
-        
-        Args:
-            parent: Parent widget (usually the preview widget)
-        """
-        from PySide6.QtWidgets import QGraphicsView, QGraphicsScene
-        from PySide6.QtCore import Qt
         
         # Create QGraphicsView and scene
         self._view = QGraphicsView(parent)
@@ -601,6 +779,10 @@ class UnifiedGraphicsView:
                 pass
             
             print(f"[UNIFIED VIEW] Widget {widget_name} deleted")
+            
+            # Note: Widget deletion notification is now handled directly by UnifiedController
+            # from widget deleteRequested signals, not through this signal
+            # self.widgetDeleted.emit(widget_name)
         else:
             print(f"[UNIFIED VIEW] Widget {widget_name} not found")
 
@@ -1143,7 +1325,6 @@ class UnifiedGraphicsView:
     
     def __repr__(self) -> str:
         return f"<UnifiedGraphicsView with {len(self._widgets)} widgets>"
-        self._last_mouse_pos = QPointF()
 
     def _show_property_editor(self, widget):
         """Show property editor for widget."""

@@ -24,6 +24,7 @@ class UnifiedController:
         # Unified system
         self.unified_view = None
         self.unified_integration = None
+        self.widgets_tab = None  # Reference to WidgetsTab for sync
         
         # Metric data manager for live system metrics
         self.metric_manager = get_metric_manager()
@@ -58,6 +59,33 @@ class UnifiedController:
             self.metric_manager.stop()
             self.logger.info("Metric data manager stopped")
     
+    def set_widgets_tab(self, widgets_tab):
+        """Set reference to WidgetsTab for synchronization."""
+        self.widgets_tab = widgets_tab
+        self.logger.debug("WidgetsTab reference set in UnifiedController")
+        
+        # Connect deletion signal if unified_view exists
+        if self.unified_view and hasattr(self.unified_view, 'widgetDeleted'):
+            self.unified_view.widgetDeleted.connect(self._on_widget_deleted)
+            self.logger.debug("Connected widgetDeleted signal")
+    
+    def _on_widget_deleted_from_widget(self, widget_id: str):
+        """Handle widget deletion directly from widget signal."""
+        print(f"[DEBUG] _on_widget_deleted_from_widget called: {widget_id}")
+        
+        # Remove from WidgetsTab
+        if self.widgets_tab:
+            success = self.widgets_tab.remove_widget(widget_id)
+            if success:
+                self.logger.info(f"Removed widget {widget_id} from WidgetsTab")
+            else:
+                self.logger.warning(f"Failed to remove widget {widget_id} from WidgetsTab")
+        
+        # Remove from our internal storage
+        if hasattr(self, 'widgets') and widget_id in self.widgets:
+            del self.widgets[widget_id]
+            self.logger.info(f"Removed widget {widget_id} from UnifiedController storage")
+    
     def setup_preview_area(self, preview_area_widget: QWidget) -> bool:
         """Setup unified preview area - returns success"""
         try:
@@ -71,6 +99,12 @@ class UnifiedController:
             
             # Create unified view
             self.unified_view = UnifiedGraphicsView(preview_area_widget)
+            
+            # Connect deletion signal if widgets_tab is set
+            if self.widgets_tab and hasattr(self.unified_view, 'widgetDeleted'):
+                # Note: Widget deletion is now handled directly from widget signals
+                # self.unified_view.widgetDeleted.connect(self._on_widget_deleted, Qt.QueuedConnection)
+                pass
             self.unified_view.set_scene_rect(
                 0, 0, 
                 self.device_width * self.preview_scale,
@@ -642,6 +676,9 @@ class UnifiedController:
                     'type': widget_type,
                     'properties': properties
                 }
+                
+                # Connect widget deletion signal directly to controller
+                widget.deleteRequested.connect(lambda wid=widget_id: self._on_widget_deleted_from_widget(wid))
                 
                 self.logger.info(f"Created unified widget: {widget_id} ({widget_type}) at ({x},{y})")
                 return widget_id

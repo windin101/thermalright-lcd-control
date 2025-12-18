@@ -4,13 +4,14 @@ Widgets Tab - For adding and configuring display widgets
 from typing import Dict, Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QPushButton, QComboBox, QLineEdit,
     QSpinBox, QFormLayout, QListWidget,
     QListWidgetItem, QDialog, QDialogButtonBox
 )
 
 from ...common.logging_config import get_gui_logger
+from ..widgets.widget_palette import WidgetPalette
 
 
 class WidgetsTab(QWidget):
@@ -29,9 +30,29 @@ class WidgetsTab(QWidget):
     def setup_ui(self):
         """Setup widgets tab UI"""
         main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Create split layout: Palette on left, Widget list on right
+        split_layout = QHBoxLayout()
+        split_layout.setSpacing(10)
+        
+        # Left: Widget Palette
+        palette_group = QGroupBox("Widget Palette")
+        palette_layout = QVBoxLayout(palette_group)
+        
+        self.widget_palette = WidgetPalette()
+        self.widget_palette.widgetSelected.connect(self._on_widget_palette_selected)
+        palette_layout.addWidget(self.widget_palette)
+        
+        split_layout.addWidget(palette_group, 2)  # 2/3 width
+        
+        # Right: Widget List & Properties
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(10)
         
         # Widget list section
-        list_group = QGroupBox("Widgets")
+        list_group = QGroupBox("Added Widgets")
         list_layout = QVBoxLayout(list_group)
         
         # Widget list
@@ -39,21 +60,70 @@ class WidgetsTab(QWidget):
         self.widget_list.itemSelectionChanged.connect(self.on_widget_selected)
         list_layout.addWidget(self.widget_list)
         
-        # Add widget button
-        add_widget_btn = QPushButton("+ Add Widget")
-        add_widget_btn.clicked.connect(self.show_add_widget_dialog)
-        list_layout.addWidget(add_widget_btn)
+        # Delete selected widget button
+        delete_widget_btn = QPushButton("− Delete Selected Widget")
+        delete_widget_btn.clicked.connect(self._delete_selected_widget)
+        list_layout.addWidget(delete_widget_btn)
         
-        main_layout.addWidget(list_group)
+        right_layout.addWidget(list_group)
         
         # Widget properties section
         self.properties_group = QGroupBox("Widget Properties")
         self.properties_group.setVisible(False)
         self.properties_layout = QFormLayout(self.properties_group)
-        main_layout.addWidget(self.properties_group)
+        right_layout.addWidget(self.properties_group)
         
-        main_layout.addStretch()
+        right_layout.addStretch()
+        split_layout.addLayout(right_layout, 1)  # 1/3 width
+        
+        main_layout.addLayout(split_layout)
     
+    def _on_widget_palette_selected(self, widget_type: str, default_properties: dict):
+        """
+        Handle widget selection from palette.
+        
+        Args:
+            widget_type: Type of widget selected (e.g., 'cpu_usage')
+            default_properties: Default properties for the widget
+        """
+        import uuid
+        
+        # Generate unique widget ID
+        widget_id = f"{widget_type}_{uuid.uuid4().hex[:8]}"
+        
+        # Add widget_name to properties for tracking
+        properties = default_properties.copy()
+        properties['widget_name'] = widget_id
+        
+        # Store widget
+        self.widgets[widget_id] = properties
+        self.update_widget_list()
+        
+        # Emit signal for preview area
+        self.widget_added.emit(widget_id, widget_type, properties)
+        
+        self.logger.info(f"Added widget from palette: {widget_id} ({widget_type})")
+    
+    def _delete_selected_widget(self):
+        """Delete the currently selected widget from the list."""
+        selected = self.widget_list.currentItem()
+        if not selected:
+            return
+        
+        widget_id = selected.data(Qt.UserRole)
+        if widget_id in self.widgets:
+            # Remove from dictionary
+            del self.widgets[widget_id]
+            
+            # Update list
+            self.update_widget_list()
+            
+            # Clear properties if this was the selected widget
+            if self.current_widget_id == widget_id:
+                self.current_widget_id = None
+                self.properties_group.setVisible(False)
+            
+            self.logger.info(f"Deleted widget: {widget_id}")
     def show_add_widget_dialog(self):
         """Show dialog to add new widget"""
         dialog = QDialog(self)
@@ -355,10 +425,38 @@ class WidgetsTab(QWidget):
             self.widgets[self.current_widget_id][key] = value
             self.widget_updated.emit(self.current_widget_id, self.widgets[self.current_widget_id])
     
+    def remove_widget(self, widget_id: str):
+        """Remove widget by ID."""
+        print(f"[DEBUG] WidgetsTab.remove_widget called with: {widget_id}")
+        print(f"[DEBUG] Current widgets in WidgetsTab: {list(self.widgets.keys())}")
+        if widget_id in self.widgets:
+            # Remove from dictionary
+            del self.widgets[widget_id]
+            
+            # Update list display
+            print(f"[DEBUG] Calling update_widget_list after removal")
+            self.update_widget_list()
+            
+            # Clear properties if this was the selected widget
+            if self.current_widget_id == widget_id:
+                self.current_widget_id = None
+                self.properties_group.setVisible(False)
+            
+            self.logger.info(f"Removed widget: {widget_id}")
+            print(f"[DEBUG] Widget {widget_id} successfully removed from WidgetsTab")
+            return True
+        else:
+            self.logger.warning(f"Widget {widget_id} not found in WidgetsTab")
+            print(f"[DEBUG] Widget {widget_id} not found in WidgetsTab")
+            return False
     def update_widget_list(self):
         """Update widget list display"""
+        print(f"[DEBUG] update_widget_list called, widgets dict has {len(self.widgets)} items")
         self.widget_list.clear()
         for widget_id, properties in self.widgets.items():
-            item = QListWidgetItem(f"{properties.get('type', 'unknown')}: {properties.get('label', widget_id)}")
+            item_text = f"{properties.get('type', 'unknown')}: {properties.get('label', widget_id)}"
+            print(f"[DEBUG] Adding item to list: {item_text} (id: {widget_id})")
+            item = QListWidgetItem(item_text)
             item.setData(Qt.UserRole, widget_id)
             self.widget_list.addItem(item)
+        print(f"[DEBUG] List now has {self.widget_list.count()} items")

@@ -219,33 +219,27 @@ class ControlsManager:
 
     def _set_rotation(self, degrees: int):
         """Set screen rotation"""
-        print(f"DEBUG: Setting rotation to {degrees} degrees")
         
         # Update preview manager rotation (for device config)
         self.parent.preview_manager.current_rotation = degrees
-        print(f"DEBUG: preview_manager.current_rotation set to {self.parent.preview_manager.current_rotation}")
         
         # Update button states
         self._update_rotation_buttons()
         
         # Apply rotation to the unified graphics view (for GUI preview)
         if hasattr(self.parent, 'unified') and hasattr(self.parent.unified, 'unified_view'):
-            print(f"DEBUG: Applying rotation {degrees} to unified graphics view")
             self._apply_rotation_to_unified_view(degrees)
         
         # Recreate display generator with new rotation setting
         if hasattr(self.parent.preview_manager, 'create_display_generator'):
-            print("DEBUG: Recreating display generator with new rotation")
             self.parent.preview_manager.create_display_generator()
         
         # Force immediate preview refresh with new rotation
         if hasattr(self.parent.preview_manager, 'update_preview_frame'):
-            print("DEBUG: Calling update_preview_frame")
             self.parent.preview_manager.update_preview_frame()
         
         # Update preview only (don't send to device)
         if hasattr(self.parent, 'update_preview_only'):
-            print("DEBUG: Calling update_preview_only")
             self.parent.update_preview_only()
     
     def _update_rotation_buttons(self):
@@ -256,31 +250,91 @@ class ControlsManager:
             button.setChecked(rotation == current_rotation)
 
     def _apply_rotation_to_unified_view(self, degrees: int):
-        """Apply rotation transformation to the unified graphics view"""
+        """Apply rotation transformation to the entire preview container (like a PC monitor)"""
         try:
             from PySide6.QtGui import QTransform
             
-            # Get the QGraphicsView from unified_view
-            graphics_view = self.parent.unified.unified_view.view
+            # Find the preview container widget (the one that holds the graphics view)
+            # This simulates rotating the entire monitor
+            preview_container = None
+            if hasattr(self.parent, 'centralWidget'):
+                central_widget = self.parent.centralWidget()
+                if central_widget and central_widget.layout():
+                    # The preview container is the first widget in the left column
+                    left_column = central_widget.layout().itemAt(0).widget()
+                    if left_column and left_column.layout():
+                        preview_container = left_column.layout().itemAt(0).widget()
             
-            # Create transform for rotation
-            transform = QTransform()
-            
-            if degrees == 90:
-                transform.rotate(90)
-            elif degrees == 180:
-                transform.rotate(180)
-            elif degrees == 270:
-                transform.rotate(270)
-            else:  # 0 degrees or invalid
-                transform.rotate(0)
-            
-            # Apply transform to the graphics view
-            graphics_view.setTransform(transform)
-            print(f"DEBUG: Applied {degrees} degree rotation to graphics view")
+            if preview_container:
+                # Store original size
+                original_size = preview_container.size()
+                
+                # Create transform for rotation
+                transform = QTransform()
+                
+                if degrees == 90:
+                    transform.rotate(90)
+                    # Swap dimensions for 90/270 degree rotation
+                    new_width = original_size.height()
+                    new_height = original_size.width()
+                elif degrees == 180:
+                    transform.rotate(180)
+                    new_width = original_size.width()
+                    new_height = original_size.height()
+                elif degrees == 270:
+                    transform.rotate(270)
+                    # Swap dimensions for 90/270 degree rotation
+                    new_width = original_size.height()
+                    new_height = original_size.width()
+                else:  # 0 degrees
+                    transform.rotate(0)
+                    # Reset to original size
+                    new_width = 480
+                    new_height = 360
+                
+                # Apply new size
+                if degrees in [90, 270]:
+                    # Portrait mode
+                    preview_container.setFixedSize(360, 480)
+                elif degrees in [0, 180]:
+                    # Landscape mode
+                    preview_container.setFixedSize(480, 360)
+                
+                # Apply transform to the entire preview container
+                preview_container.setTransform(transform)
+                
+                # Force layout update
+                preview_container.adjustSize()
+                if preview_container.parent() and preview_container.parent().layout():
+                    preview_container.parent().layout().invalidate()
+                    preview_container.parent().layout().update()
+                if central_widget and central_widget.layout():
+                    central_widget.layout().invalidate()
+                    central_widget.layout().update()
+                
+                # Force update
+                preview_container.update()
+                central_widget.update()
+                
+                # Also update the graphics view to match
+                if hasattr(self.parent, 'unified') and hasattr(self.parent.unified, 'unified_view'):
+                    graphics_view = self.parent.unified.unified_view.view
+                    graphics_view.setTransform(QTransform())  # Reset graphics view transform
+            else:
+                # Fallback to graphics view rotation
+                if hasattr(self.parent, 'unified') and hasattr(self.parent.unified, 'unified_view'):
+                    graphics_view = self.parent.unified.unified_view.view
+                    transform = QTransform()
+                    if degrees == 90:
+                        transform.rotate(90)
+                    elif degrees == 180:
+                        transform.rotate(180)
+                    elif degrees == 270:
+                        transform.rotate(270)
+                    graphics_view.setTransform(transform)
             
         except Exception as e:
-            print(f"DEBUG: Error applying rotation to unified view: {e}")
+            pass
 
     def _create_text_style_controls(self) -> QGroupBox:
         """Create text style controls"""

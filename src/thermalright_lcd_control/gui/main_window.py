@@ -263,8 +263,11 @@ class MediaPreviewUI(QMainWindow):
         self.unified.preview_manager = self.preview_manager
         self.unified.config_generator = self.config_generator
         
+        # Initialize default background to create display generator
+        self.preview_manager.initialize_default_background(self.backgrounds_dir)
+        
         # Set default background
-        self.unified.set_background(None)
+        self.unified.set_background(self.preview_manager, None)
     
     def closeEvent(self, event):
         """Handle application close - cleanup resources"""

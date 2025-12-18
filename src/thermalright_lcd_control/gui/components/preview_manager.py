@@ -51,11 +51,25 @@ class PreviewManager:
                                     set(supported_formats.get('videos', [])) |
                                     set(supported_formats.get('gifs', [])))
 
+            # Prefer images over videos for LCD compatibility
+            image_files = []
+            video_files = []
+            
             for file_path in backgrounds_path.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                    self.current_background_path = str(file_path)
-                    self.create_display_generator()
-                    return
+                    if file_path.suffix.lower() in supported_formats.get('videos', []):
+                        video_files.append(file_path)
+                    else:
+                        image_files.append(file_path)
+            
+            # Use image files first, then videos as fallback
+            candidate_files = image_files + video_files
+            
+            for file_path in candidate_files:
+                self.current_background_path = str(file_path)
+                self.background_type = self.determine_background_type(str(file_path)).value
+                self.create_display_generator()
+                return
 
             self.preview_label.setText("No background files\nfound")
         except Exception as e:
@@ -80,9 +94,7 @@ class PreviewManager:
 
     def create_display_generator(self):
         """Create or recreate DisplayGenerator with current settings"""
-        print(f"DEBUG: create_display_generator called, background_path: {self.current_background_path}")
         if not self.current_background_path:
-            print("DEBUG: No background path, returning")
             return
 
         try:
@@ -95,45 +107,36 @@ class PreviewManager:
                 foreground_image_path=self.current_foreground_path,
                 foreground_position=(0, 0),
                 foreground_alpha=self.foreground_opacity,
-                rotation=getattr(self, 'current_rotation', 0)
+                rotation=getattr(self, 'current_rotation', 0),
+                metrics_configs=getattr(self, 'metrics_configs', []),
+                date_config=getattr(self, 'date_config', None),
+                time_config=getattr(self, 'time_config', None)
             )
 
             if self.display_generator:
-                print("DEBUG: Cleaning up existing display_generator")
                 self.display_generator.cleanup()
 
-            print("DEBUG: Creating new DisplayGenerator")
             self.display_generator = DisplayGenerator(display_config)
-            print(f"DEBUG: DisplayGenerator created successfully: {self.display_generator is not None}")
-            self.update_preview_frame()
         except Exception as e:
-            print(f"DEBUG: Exception creating DisplayGenerator: {e}")
             self.preview_label.setText(f"Error creating\nDisplayGenerator:\n{str(e)}")
 
     def update_preview_frame(self):
         """Update preview with next frame from DisplayGenerator"""
-        print(f"DEBUG: update_preview_frame called, display_generator exists: {self.display_generator is not None}")
         if not self.display_generator:
-            print("DEBUG: No display_generator, returning early")
             return
 
         try:
-            print("DEBUG: Calling display_generator.get_frame_with_duration()")
             pil_image, duration = self.display_generator.get_frame_with_duration()
-            print(f"DEBUG: Got PIL image: {pil_image is not None}, size: {pil_image.size if pil_image else 'None'}")
             qpixmap = self.pil_image_to_qpixmap(pil_image)
 
             if qpixmap and not qpixmap.isNull():
-                print(f"DEBUG: Setting pixmap on label: {qpixmap.width()}x{qpixmap.height()}")
                 self.preview_label.setPixmap(qpixmap)
             else:
-                print("DEBUG: Error converting image, setting error text")
                 self.preview_label.setText("Error converting\nimage")
             next_update_ms = max(int(duration * 1000), 33)
             self.preview_timer.setSingleShot(True)
             self.preview_timer.start(next_update_ms)
         except Exception as e:
-            print(f"DEBUG: Exception in update_preview_frame: {e}")
             self.preview_label.setText(f"Error updating\npreview:\n{str(e)}")
 
     def pil_image_to_qpixmap(self, pil_image):
@@ -144,26 +147,22 @@ class PreviewManager:
 
             # Apply rotation to PIL image based on current_rotation
             current_rotation = getattr(self, 'current_rotation', 0)
-            print(f"DEBUG: Applying rotation {current_rotation} degrees to image")
             if current_rotation:
                 # PIL rotate uses counterclockwise, so negate for clockwise rotation
-                print(f"DEBUG: Rotating PIL image by {-current_rotation} degrees")
                 pil_image = pil_image.rotate(-current_rotation)
 
             width, height = pil_image.size
-            print(f"DEBUG: Final image size: {width}x{height}")
             image_data = pil_image.tobytes("raw", "RGB")
             qimage = QImage(image_data, width, height, QImage.Format_RGB888)
             pixmap = QPixmap.fromImage(qimage)
-            print(f"DEBUG: Created QPixmap: {pixmap.width()}x{pixmap.height()}")
             return pixmap
         except Exception as e:
-            print(f"DEBUG: Error in pil_image_to_qpixmap: {e}")
             return None
 
     def set_background(self, file_path: str):
         """Set background media"""
         self.current_background_path = file_path
+        self.background_type = self.determine_background_type(file_path).value
         self.create_display_generator()
 
     def set_foreground(self, file_path: str):

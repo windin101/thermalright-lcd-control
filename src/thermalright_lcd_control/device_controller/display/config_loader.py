@@ -121,6 +121,9 @@ class ConfigLoader:
         # Resolve background path
         background_path = path_resolver.resolve_background_path(display_data["background"]["path"])
 
+        # Get rotation
+        rotation = display_data.get("rotation", 0)
+
         config = DisplayConfig(
             output_width=width,
             output_height=height,
@@ -133,7 +136,8 @@ class ConfigLoader:
             foreground_alpha=foreground_alpha,
             metrics_configs=metrics_configs,
             date_config=date_config,
-            time_config=time_config
+            time_config=time_config,
+            rotation=rotation
         )
 
         return config

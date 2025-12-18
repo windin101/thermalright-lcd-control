@@ -68,7 +68,6 @@ class ConfigGeneratorUnified:
         """Generate config dict from preview manager"""
         try:
             rotation = getattr(preview_manager, 'current_rotation', 0)
-            print(f"DEBUG: Config generation - rotation = {rotation}")
             config_data = {
                 "display": {
                     "rotation": rotation,

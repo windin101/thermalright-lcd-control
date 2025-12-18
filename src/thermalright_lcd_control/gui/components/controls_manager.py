@@ -221,12 +221,22 @@ class ControlsManager:
         """Set screen rotation"""
         print(f"DEBUG: Setting rotation to {degrees} degrees")
         
-        # Update preview manager rotation
+        # Update preview manager rotation (for device config)
         self.parent.preview_manager.current_rotation = degrees
         print(f"DEBUG: preview_manager.current_rotation set to {self.parent.preview_manager.current_rotation}")
         
         # Update button states
         self._update_rotation_buttons()
+        
+        # Apply rotation to the unified graphics view (for GUI preview)
+        if hasattr(self.parent, 'unified') and hasattr(self.parent.unified, 'unified_view'):
+            print(f"DEBUG: Applying rotation {degrees} to unified graphics view")
+            self._apply_rotation_to_unified_view(degrees)
+        
+        # Recreate display generator with new rotation setting
+        if hasattr(self.parent.preview_manager, 'create_display_generator'):
+            print("DEBUG: Recreating display generator with new rotation")
+            self.parent.preview_manager.create_display_generator()
         
         # Force immediate preview refresh with new rotation
         if hasattr(self.parent.preview_manager, 'update_preview_frame'):
@@ -244,6 +254,33 @@ class ControlsManager:
         
         for rotation, button in self.rotation_buttons.items():
             button.setChecked(rotation == current_rotation)
+
+    def _apply_rotation_to_unified_view(self, degrees: int):
+        """Apply rotation transformation to the unified graphics view"""
+        try:
+            from PySide6.QtGui import QTransform
+            
+            # Get the QGraphicsView from unified_view
+            graphics_view = self.parent.unified.unified_view.view
+            
+            # Create transform for rotation
+            transform = QTransform()
+            
+            if degrees == 90:
+                transform.rotate(90)
+            elif degrees == 180:
+                transform.rotate(180)
+            elif degrees == 270:
+                transform.rotate(270)
+            else:  # 0 degrees or invalid
+                transform.rotate(0)
+            
+            # Apply transform to the graphics view
+            graphics_view.setTransform(transform)
+            print(f"DEBUG: Applied {degrees} degree rotation to graphics view")
+            
+        except Exception as e:
+            print(f"DEBUG: Error applying rotation to unified view: {e}")
 
     def _create_text_style_controls(self) -> QGroupBox:
         """Create text style controls"""

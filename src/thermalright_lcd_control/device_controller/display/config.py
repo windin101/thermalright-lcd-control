@@ -62,6 +62,9 @@ class DisplayConfig:
     foreground_position: Tuple[int, int] = (0, 0)
     foreground_alpha: float = 1.0  # 0.0 = transparent, 1.0 = opaque
 
+    # Display rotation (degrees: 0, 90, 180, 270)
+    rotation: int = 0
+
     # Metrics configuration
     metrics_configs: List[MetricConfig] = None
 

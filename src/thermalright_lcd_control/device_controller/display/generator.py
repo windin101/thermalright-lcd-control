@@ -77,6 +77,10 @@ class DisplayGenerator:
 
         convert = result.convert('RGB')
 
+        # Apply rotation if specified
+        if hasattr(self.config, 'rotation') and self.config.rotation:
+            convert = convert.rotate(-self.config.rotation)  # PIL rotate uses counterclockwise
+
         return convert
 
     def generate_frame(self) -> Image.Image:

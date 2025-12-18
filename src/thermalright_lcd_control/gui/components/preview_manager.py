@@ -80,7 +80,9 @@ class PreviewManager:
 
     def create_display_generator(self):
         """Create or recreate DisplayGenerator with current settings"""
+        print(f"DEBUG: create_display_generator called, background_path: {self.current_background_path}")
         if not self.current_background_path:
+            print("DEBUG: No background path, returning")
             return
 
         try:
@@ -92,34 +94,46 @@ class PreviewManager:
                 global_font_path=self.text_style.font_family,
                 foreground_image_path=self.current_foreground_path,
                 foreground_position=(0, 0),
-                foreground_alpha=self.foreground_opacity
+                foreground_alpha=self.foreground_opacity,
+                rotation=getattr(self, 'current_rotation', 0)
             )
 
             if self.display_generator:
+                print("DEBUG: Cleaning up existing display_generator")
                 self.display_generator.cleanup()
 
+            print("DEBUG: Creating new DisplayGenerator")
             self.display_generator = DisplayGenerator(display_config)
+            print(f"DEBUG: DisplayGenerator created successfully: {self.display_generator is not None}")
             self.update_preview_frame()
         except Exception as e:
+            print(f"DEBUG: Exception creating DisplayGenerator: {e}")
             self.preview_label.setText(f"Error creating\nDisplayGenerator:\n{str(e)}")
 
     def update_preview_frame(self):
         """Update preview with next frame from DisplayGenerator"""
+        print(f"DEBUG: update_preview_frame called, display_generator exists: {self.display_generator is not None}")
         if not self.display_generator:
+            print("DEBUG: No display_generator, returning early")
             return
 
         try:
+            print("DEBUG: Calling display_generator.get_frame_with_duration()")
             pil_image, duration = self.display_generator.get_frame_with_duration()
+            print(f"DEBUG: Got PIL image: {pil_image is not None}, size: {pil_image.size if pil_image else 'None'}")
             qpixmap = self.pil_image_to_qpixmap(pil_image)
 
             if qpixmap and not qpixmap.isNull():
+                print(f"DEBUG: Setting pixmap on label: {qpixmap.width()}x{qpixmap.height()}")
                 self.preview_label.setPixmap(qpixmap)
             else:
+                print("DEBUG: Error converting image, setting error text")
                 self.preview_label.setText("Error converting\nimage")
             next_update_ms = max(int(duration * 1000), 33)
             self.preview_timer.setSingleShot(True)
             self.preview_timer.start(next_update_ms)
         except Exception as e:
+            print(f"DEBUG: Exception in update_preview_frame: {e}")
             self.preview_label.setText(f"Error updating\npreview:\n{str(e)}")
 
     def pil_image_to_qpixmap(self, pil_image):

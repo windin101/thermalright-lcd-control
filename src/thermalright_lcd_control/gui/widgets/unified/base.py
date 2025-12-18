@@ -6,7 +6,7 @@ All widgets inherit from UnifiedBaseItem and are managed by UnifiedGraphicsView.
 """
 from PySide6.QtCore import QObject,  Qt, QRectF, QPointF, Signal, Property
 from PySide6.QtWidgets import QGraphicsObject, QGraphicsItem, QGraphicsView, QGraphicsScene
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QPixmap
 from typing import Dict, Any, Optional, Tuple
 import logging
 
@@ -35,6 +35,7 @@ class UnifiedBaseItem(QGraphicsObject):
     
     # Layer constants for z-ordering
     BACKGROUND_LAYER = 0
+    FOREGROUND_LAYER = 50
     SHAPE_LAYER = 100
     TEXT_LAYER = 200
     GRAPH_LAYER = 300
@@ -704,10 +705,14 @@ class UnifiedGraphicsView(QObject):
         
         # Configure view
         self._view.setStyleSheet("background: transparent; border: none;")
+        self._view.viewport().setStyleSheet("background: transparent;")
+        
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.setRenderHint(QPainter.Antialiasing, True)
         self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        self._view.setCacheMode(QGraphicsView.CacheNone)
+        # self._view.setCacheMode(QGraphicsView.CacheNone)
         
         # ENABLE INTERACTION AND SELECTION
         self._view.setInteractive(True)
@@ -1346,3 +1351,116 @@ class UnifiedGraphicsView(QObject):
     def _on_properties_applied(self, properties: dict):
         """Handle properties applied from editor."""
         print(f"[UNIFIED VIEW] Properties applied: {properties}")
+
+
+class ForegroundItem(QGraphicsObject):
+    """
+    QGraphicsItem for displaying foreground images.
+    
+    Foregrounds are overlaid on backgrounds but behind widgets.
+    They can be positioned and have opacity control.
+    """
+    
+    def __init__(self, image_path: str, opacity: float = 1.0, preview_scale: float = 1.0, position_callback=None):
+        super().__init__()
+        
+        self._image_path = image_path
+        self._opacity = opacity
+        self._preview_scale = preview_scale
+        self._position_callback = position_callback  # Callback to update position in preview_manager
+        
+        # Load and scale the image
+        self._pixmap = QPixmap(image_path)
+        if not self._pixmap.isNull():
+            # Scale to preview size
+            scaled_pixmap = self._pixmap.scaled(
+                int(self._pixmap.width() * preview_scale),
+                int(self._pixmap.height() * preview_scale),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self._pixmap = scaled_pixmap
+        
+        # Set z-value to be between background and widgets
+        self.setZValue(UnifiedBaseItem.FOREGROUND_LAYER)
+        
+        # Make movable but not selectable (to avoid interfering with widget selection)
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        
+        # Set initial position (centered)
+        if not self._pixmap.isNull():
+            self.setPos(0, 0)  # Will be centered by caller
+    
+    def boundingRect(self):
+        """Return bounding rectangle."""
+        if self._pixmap.isNull():
+            return QRectF(0, 0, 100, 100)
+        return QRectF(0, 0, self._pixmap.width(), self._pixmap.height())
+    
+    def paint(self, painter, option, widget):
+        """Paint the foreground image."""
+        if self._pixmap.isNull():
+            return
+        
+        # Set opacity
+        painter.setOpacity(self._opacity)
+        
+        # Draw the pixmap
+        painter.drawPixmap(0, 0, self._pixmap)
+    
+    def set_opacity(self, opacity: float):
+        """Set foreground opacity."""
+        self._opacity = max(0.0, min(1.0, opacity))
+        self.update()
+    
+    def get_opacity(self) -> float:
+        """Get foreground opacity."""
+        return self._opacity
+    
+    def set_image(self, image_path: str):
+        """Set new foreground image."""
+        self._image_path = image_path
+        
+        # Load and scale the image
+        self._pixmap = QPixmap(image_path)
+        if not self._pixmap.isNull():
+            # Scale to preview size
+            scaled_pixmap = self._pixmap.scaled(
+                int(self._pixmap.width() * self._preview_scale),
+                int(self._pixmap.height() * self._preview_scale),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self._pixmap = scaled_pixmap
+        
+        self.update()
+    
+    def itemChange(self, change, value):
+        """Handle item changes."""
+        if change == QGraphicsItem.ItemPositionChange:
+            # Constrain to scene bounds
+            if self.scene():
+                scene_rect = self.scene().sceneRect()
+                new_pos = value
+                
+                # Keep within scene bounds
+                if new_pos.x() < scene_rect.left():
+                    new_pos.setX(scene_rect.left())
+                elif new_pos.x() + self.boundingRect().width() > scene_rect.right():
+                    new_pos.setX(scene_rect.right() - self.boundingRect().width())
+                
+                if new_pos.y() < scene_rect.top():
+                    new_pos.setY(scene_rect.top())
+                elif new_pos.y() + self.boundingRect().height() > scene_rect.bottom():
+                    new_pos.setY(scene_rect.bottom() - self.boundingRect().height())
+                
+                return new_pos
+        elif change == QGraphicsItem.ItemPositionHasChanged:
+            # Notify preview_manager of position change
+            if self._position_callback:
+                pos = self.pos()
+                self._position_callback(int(pos.x()), int(pos.y()))
+        
+        return super().itemChange(change, value)

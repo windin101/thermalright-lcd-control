@@ -5,6 +5,17 @@ All notable changes to Thermalright LCD Control will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2025-12-19
+
+### Added
+- **Video Thumbnails in Preview**: Video backgrounds now show the first frame as thumbnail instead of dark gray placeholder
+- **Transparent Text Rendering**: Removed black boxes behind text widgets on device display for better readability over backgrounds
+- **Background Image Toggle**: Added checkbox to show/hide background images, displaying solid color when disabled
+
+### Fixed
+- **Preview Video Display**: Videos now display actual content in preview area instead of generic placeholder
+- **Text Visibility**: Text widgets now blend with background instead of having opaque black backgrounds
+
 ## [1.4.0] - 2025-12-18
 
 ### Added

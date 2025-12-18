@@ -69,6 +69,14 @@ class FrameManager:
     def _load_background(self):
         """Load background based on its type and set frame duration"""
         try:
+            # Check if background is enabled
+            if not getattr(self.config, 'background_enabled', True):
+                self._load_color_background()
+                self.frame_duration = 1.0  # Fixed 1 second for color
+                self.frame_start_time = time.time()
+                self.logger.info("Background disabled, using color background")
+                return
+            
             if self.config.background_type == BackgroundType.IMAGE:
                 self._load_static_image()
                 self.frame_duration = 1.0  # Fixed 1 second for images

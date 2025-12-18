@@ -6,9 +6,9 @@ display:
       g: 0
       r: 0
     enabled: true
-    path: resources/themes/backgrounds/a003.png
+    path: /home/leeo/.local/share/thermalright-lcd-control/resources/themes/backgrounds/a001.mp4
     scale_mode: scaled_fill
-    type: image
+    type: video
   bar_graphs: []
   circular_graphs: []
   custom_texts: []
@@ -18,8 +18,8 @@ display:
     enabled: true
     font_size: 18
     position:
-      x: 210
-      y: 110
+      x: 226
+      y: 73
     show_weekday: true
     show_year: false
     text: ''
@@ -35,7 +35,7 @@ display:
     configs: []
     enabled: false
   refresh_interval: 1.0
-  rotation: 180
+  rotation: 0
   text_effects:
     gradient:
       color1: '#ffffffff'
@@ -57,8 +57,8 @@ display:
     enabled: true
     font_size: 24
     position:
-      x: 210
-      y: 130
+      x: 130
+      y: 69
     show_am_pm: false
     show_seconds: false
     text: ''

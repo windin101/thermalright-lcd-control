@@ -36,6 +36,12 @@ and added the option to select a collection of images to cycle through on the di
 
 ## Changelog
 
+### [1.4.1] - 2025-12-19
+- 🎬 **Video Thumbnails**: Preview area now shows actual video frames instead of dark placeholders
+- 🔍 **Transparent Text**: Removed black boxes behind text widgets for better background blending
+- 🎛️ **Background Toggle**: Added checkbox to show/hide background images with solid color fallback
+- ✨ **Enhanced Preview**: Videos display first frame, text blends seamlessly with backgrounds
+
 ### [1.4.0] - 2025-12-18
 - 📊 **Enhanced System Monitoring**: Real-time CPU, GPU, and RAM metrics display
 - 🎨 **Dynamic GUI Layout**: Equal column layout with organized control sections

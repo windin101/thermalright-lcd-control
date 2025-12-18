@@ -125,8 +125,8 @@ class TextRenderer:
             # Get text bounding box to clear area
             try:
                 bbox = draw.textbbox(config.position, text, font=font, anchor='mm')
-                # Clear the area with background color (black)
-                draw.rectangle(bbox, fill=(0, 0, 0))
+                # Clear the area with background color (transparent - removed black box)
+                # draw.rectangle(bbox, fill=(0, 0, 0))
             except Exception as e:
                 self.logger.warning(f"Error clearing text area for {config.name}: {e}")
             
@@ -148,8 +148,8 @@ class TextRenderer:
         # Get text bounding box to clear area
         try:
             bbox = draw.textbbox(config.position, current_date, font=font, anchor='mm')
-            # Clear the area with background color (black)
-            draw.rectangle(bbox, fill=(0, 0, 0))
+            # Clear the area with background color (transparent - removed black box)
+            # draw.rectangle(bbox, fill=(0, 0, 0))
         except Exception as e:
             self.logger.warning(f"Error clearing date text area: {e}")
         
@@ -170,8 +170,8 @@ class TextRenderer:
         # Get text bounding box to clear area
         try:
             bbox = draw.textbbox(config.position, current_time, font=font, anchor='mm')
-            # Clear the area with background color (black)
-            draw.rectangle(bbox, fill=(0, 0, 0))
+            # Clear the area with background color (transparent - removed black box)
+            # draw.rectangle(bbox, fill=(0, 0, 0))
         except Exception as e:
             self.logger.warning(f"Error clearing time text area: {e}")
         
@@ -189,8 +189,8 @@ class TextRenderer:
         # Get text bounding box to clear area
         try:
             bbox = draw.textbbox(config.position, config.text, font=font, anchor='mm')
-            # Clear the area with background color (black)
-            draw.rectangle(bbox, fill=(0, 0, 0))
+            # Clear the area with background color (transparent - removed black box)
+            # draw.rectangle(bbox, fill=(0, 0, 0))
         except Exception as e:
             self.logger.warning(f"Error clearing custom text area: {e}")
         

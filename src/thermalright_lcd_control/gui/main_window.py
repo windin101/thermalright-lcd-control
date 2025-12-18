@@ -27,6 +27,7 @@ class MediaPreviewUI(QMainWindow):
         # Get paths from config
         paths = self.config.get('paths', {})
         self.backgrounds_dir = paths.get('backgrounds_dir', './themes/backgrounds')
+        self.foregrounds_dir = paths.get('foregrounds_dir', './themes/foregrounds')
         
         # Get device dimensions
         if connected_device:
@@ -184,6 +185,7 @@ class MediaPreviewUI(QMainWindow):
         self.preview_manager.background_color = None  # Will be set by color picker
         self.preview_manager.current_background_path = None
         self.preview_manager.current_foreground_path = None
+        self.preview_manager.foreground_position = (0, 0)  # (x, y) position
         self.preview_manager.background_opacity = 1.0
         self.preview_manager.foreground_opacity = 1.0
         self.preview_manager.refresh_interval = 1.0
@@ -208,11 +210,12 @@ class MediaPreviewUI(QMainWindow):
             
             # Add other missing methods as stubs
             def is_background_enabled():
-                return True
+                return (self.preview_manager.current_background_path is not None and 
+                       getattr(self.preview_manager, 'show_background_image', True))
             self.preview_manager.is_background_enabled = is_background_enabled
             
             def is_foreground_enabled():
-                return False
+                return self.preview_manager.current_foreground_path is not None
             self.preview_manager.is_foreground_enabled = is_foreground_enabled
             
             def determine_background_type(path):
@@ -286,7 +289,7 @@ class MediaPreviewUI(QMainWindow):
         """Setup tabs area"""
         self.tab_widget = QTabWidget()
         
-        # ========== TAB ORDER: Themes → Media → Widgets ==========
+        # ========== TAB ORDER: Themes → Media → Foregrounds → Widgets ==========
         
         # Themes tab (FIRST)
         from .tabs.themes_tab import ThemesTab
@@ -297,13 +300,19 @@ class MediaPreviewUI(QMainWindow):
         
         # Media tab (SECOND)
         from .tabs.media_tab import MediaTab
-        media_tab = MediaTab(self.backgrounds_dir, self.config, "Media")
+        media_tab = MediaTab(self.backgrounds_dir, self.config, "Backgrounds")
         # Connect media tab signals
         media_tab.thumbnail_clicked.connect(self._on_media_selected)
         media_tab.media_added.connect(self._on_media_added)
-        self.tab_widget.addTab(media_tab, "Media")
+        self.tab_widget.addTab(media_tab, "Backgrounds")
         
-        # Widgets tab (THIRD)
+        # Foregrounds tab (THIRD)
+        foregrounds_tab = MediaTab(f"{self.foregrounds_dir}/{self.device_width}{self.device_height}", self.config, "Foregrounds")
+        # Connect foregrounds tab signals
+        foregrounds_tab.thumbnail_clicked.connect(self._on_foreground_selected)
+        self.tab_widget.addTab(foregrounds_tab, "Foregrounds")
+        
+        # Widgets tab (FOURTH)
         from .tabs.widgets_tab import WidgetsTab
         widgets_tab = WidgetsTab(self)
         widgets_tab.widget_added.connect(self._on_widget_added)
@@ -340,6 +349,21 @@ class MediaPreviewUI(QMainWindow):
         """Handle new media added via media tab"""
         self.logger.info(f"New media added: {file_path}")
         # Could update UI or show notification
+    
+    def _on_foreground_selected(self, file_path: str):
+        """Handle foreground file selection from foregrounds tab"""
+        self.logger.info(f"Foreground selected: {file_path}")
+        
+        # Update preview manager
+        if hasattr(self, 'preview_manager'):
+            self.preview_manager.current_foreground_path = file_path
+            
+            # Update unified controller foreground
+            if hasattr(self, 'unified'):
+                self.unified.set_foreground(self.preview_manager, file_path)
+            
+            # Update preview only (don't send to device)
+            self.update_preview_only()
     
     def _on_widget_added(self, widget_id: str, widget_type: str, properties: dict):
         """Handle new widget added via widgets tab"""
@@ -437,11 +461,24 @@ class MediaPreviewUI(QMainWindow):
     
     def on_opacity_editing_finished(self):
         """Opacity editing finished"""
-        pass  # TODO: Implement opacity handling
+        if hasattr(self, 'controls_manager') and self.controls_manager.opacity_input:
+            opacity = self.controls_manager.opacity_input.value() / 100.0
+            if hasattr(self, 'preview_manager'):
+                self.preview_manager.set_foreground_opacity(opacity)
+            if hasattr(self, 'unified'):
+                self.unified.set_foreground_opacity(opacity)
     
     def on_opacity_text_changed(self, text):
         """Opacity text changed"""
-        pass  # TODO: Implement opacity handling
+        # Update preview manager opacity
+        try:
+            opacity = float(text) / 100.0
+            if hasattr(self, 'preview_manager'):
+                self.preview_manager.set_foreground_opacity(opacity)
+            if hasattr(self, 'unified'):
+                self.unified.set_foreground_opacity(opacity)
+        except ValueError:
+            pass
     def on_font_size_changed(self, size):
         """Font size changed"""
         # Update via text style manager

@@ -167,7 +167,7 @@ class PropertyEditor(QWidget):
         """Add property controls to a layout."""
         for prop_name, prop_value in properties.items():
             # Skip some internal properties
-            if prop_name.startswith('_') or prop_name in ['preview_scale']:
+            if prop_name.startswith('_') or prop_name in ['preview_scale', 'selected']:
                 continue
             
             # Create label
@@ -261,6 +261,40 @@ class PropertyEditor(QWidget):
                     'gpu_mem_percent', 'gpu_mem_total'
                 ]
                 combo.addItems(metric_types)
+                combo.setCurrentText(str(prop_value))
+                combo.currentTextChanged.connect(lambda: self._on_property_changed())
+                return combo
+            
+            elif prop_name == 'date_format' and self._current_widget:
+                # Date format for DateWidget
+                combo = QComboBox()
+                date_formats = [
+                    'dd/MM', 'MM/dd', 'dd-MM', 'MM-dd', 'dd.MM', 'MM.dd',
+                    'yyyy-MM-dd', 'dd/MM/yyyy', 'MM/dd/yyyy'
+                ]
+                combo.addItems(date_formats)
+                combo.setCurrentText(str(prop_value))
+                combo.currentTextChanged.connect(lambda: self._on_property_changed())
+                return combo
+            
+            elif prop_name == 'time_format' and self._current_widget:
+                # Time format for TimeWidget
+                combo = QComboBox()
+                time_formats = [
+                    'HH:mm', 'hh:mm', 'HH:mm:ss', 'hh:mm:ss',
+                    'HH:mm AP', 'hh:mm AP', 'HH:mm:ss AP', 'hh:mm:ss AP'
+                ]
+                combo.addItems(time_formats)
+                combo.setCurrentText(str(prop_value))
+                combo.currentTextChanged.connect(lambda: self._on_property_changed())
+                return combo
+            
+            elif prop_name == 'font_family' and self._current_widget:
+                # Font family - use system fonts
+                from PySide6.QtGui import QFontDatabase
+                combo = QComboBox()
+                font_db = QFontDatabase()
+                combo.addItems(sorted(font_db.families()))
                 combo.setCurrentText(str(prop_value))
                 combo.currentTextChanged.connect(lambda: self._on_property_changed())
                 return combo

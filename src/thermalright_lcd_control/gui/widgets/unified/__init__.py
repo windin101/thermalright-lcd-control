@@ -39,6 +39,6 @@ __all__ = [
 ]
 
 # Version information
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 __author__ = 'Thermalright LCD Control Team'
 __description__ = 'Unified widget system for thermalright-lcd-control'

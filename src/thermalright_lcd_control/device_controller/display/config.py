@@ -49,6 +49,7 @@ class DisplayConfig:
     background_path: str
     background_type: BackgroundType
     background_color: Optional[Dict[str, int]] = None
+    background_enabled: bool = True
 
     # Output dimensions
     output_width: int = 320

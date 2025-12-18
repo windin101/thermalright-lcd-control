@@ -27,6 +27,7 @@ class PreviewManager:
         self.current_background_path = None
         self.current_foreground_path = None
         self.foreground_opacity = 0.5
+        self.show_background_image = True  # Whether to show background image or just color
 
         # Components
         self.display_generator = None

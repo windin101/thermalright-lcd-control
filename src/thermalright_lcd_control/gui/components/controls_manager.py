@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtWidgets import QSlider
 
 from ..widgets.draggable_widget import TextStyleConfig
+from ...common.logging_config import get_gui_logger
 
 
 class ControlsManager:
@@ -18,6 +19,7 @@ class ControlsManager:
 
     def __init__(self, parent, text_style: TextStyleConfig, metric_widgets: dict):
         self.parent = parent
+        self.logger = get_gui_logger()
         self.text_style = text_style
         self.metric_widgets = metric_widgets
 
@@ -57,7 +59,7 @@ class ControlsManager:
 
     def _create_opacity_controls(self) -> QGroupBox:
         """Create foreground opacity controls"""
-        opacity_group = QGroupBox()
+        opacity_group = QGroupBox("Foreground Opacity")
         opacity_layout = QVBoxLayout(opacity_group)  # Changé en VBoxLayout
 
         # Layout horizontal pour le label et la valeur
@@ -65,13 +67,13 @@ class ControlsManager:
         label_layout.addWidget(QLabel("Opacity:"))
         label_layout.addStretch()  # Pousse la valeur vers la droite
 
-        self.opacity_value_label = QLabel("50%")
+        self.opacity_value_label = QLabel("100%")
         label_layout.addWidget(self.opacity_value_label)
 
         # Slider qui prend toute la largeur
         self.opacity_input = QSlider(Qt.Horizontal)
         self.opacity_input.setRange(0, 100)
-        self.opacity_input.setValue(50)
+        self.opacity_input.setValue(100)  # Default to fully opaque
         self.opacity_input.setTickPosition(QSlider.TicksBelow)
         self.opacity_input.setTickInterval(10)
 
@@ -165,6 +167,15 @@ class ControlsManager:
         bg_color_layout.addStretch()
         screen_layout.addLayout(bg_color_layout)
         
+        # Background image visibility checkbox
+        bg_image_layout = QHBoxLayout()
+        self.show_bg_image_checkbox = QCheckBox("Show Background Image")
+        self.show_bg_image_checkbox.setChecked(True)  # Default to showing image
+        self.show_bg_image_checkbox.stateChanged.connect(self._on_bg_image_toggled)
+        bg_image_layout.addWidget(self.show_bg_image_checkbox)
+        bg_image_layout.addStretch()
+        screen_layout.addLayout(bg_image_layout)
+        
         # Screen info
         info_label = QLabel(f"Screen: {self.parent.device_width}x{self.parent.device_height}")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -174,6 +185,9 @@ class ControlsManager:
         
         # Initialize rotation button states
         self._update_rotation_buttons()
+        
+        # Initialize background image checkbox
+        self._update_bg_image_checkbox()
         
         return screen_group
     
@@ -248,6 +262,29 @@ class ControlsManager:
         
         for rotation, button in self.rotation_buttons.items():
             button.setChecked(rotation == current_rotation)
+    
+    def _on_bg_image_toggled(self, state):
+        """Handle background image visibility toggle"""
+        show_image = state == Qt.CheckState.Checked
+        self.logger.info(f"Background image checkbox toggled to: {show_image}")
+        
+        # Update preview manager
+        self.parent.preview_manager.show_background_image = show_image
+        
+        # Update unified controller background
+        if hasattr(self.parent, 'unified'):
+            self.parent.unified.set_background(self.parent.preview_manager, 
+                                             self.parent.preview_manager.current_background_path)
+        
+        # Update preview only (don't send to device)
+        if hasattr(self.parent, 'update_preview_only'):
+            self.parent.update_preview_only()
+    
+    def _update_bg_image_checkbox(self):
+        """Update background image checkbox state"""
+        if hasattr(self, 'show_bg_image_checkbox'):
+            show_image = getattr(self.parent.preview_manager, 'show_background_image', True)
+            self.show_bg_image_checkbox.setChecked(show_image)
 
     def _apply_rotation_to_unified_view(self, degrees: int):
         """Apply rotation transformation to the entire preview container (like a PC monitor)"""

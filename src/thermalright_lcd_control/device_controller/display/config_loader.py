@@ -130,6 +130,7 @@ class ConfigLoader:
             background_path=background_path,
             background_type=BackgroundType(display_data["background"]["type"]),
             background_color=display_data["background"].get("color"),
+            background_enabled=display_data["background"].get("enabled", True),
             global_font_path=display_data.get("font_family"),
             foreground_image_path=foreground_path,
             foreground_position=foreground_position,

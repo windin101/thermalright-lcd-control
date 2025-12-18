@@ -294,60 +294,131 @@ class UnifiedController:
             if not scene:
                 return
             
-            if image_path and os.path.exists(image_path):
-                # Determine background type
-                background_type = getattr(preview_manager, 'background_type', 'image')
-                self.logger.info(f"Setting background for {image_path}, type: {background_type}")
-                
-                if background_type == 'image':
-                    # Handle image backgrounds
-                    pixmap = QPixmap(image_path)
-                    if not pixmap.isNull():
-                        scaled_pixmap = pixmap.scaled(
-                            int(self.device_width * self.preview_scale),
-                            int(self.device_height * self.preview_scale)
-                        )
-                        scene.setBackgroundBrush(QBrush(scaled_pixmap))
-                    else:
-                        self.logger.warning(f"Failed to load image: {image_path}")
-                        self._set_color_background(preview_manager)
-                        
-                elif background_type == 'video':
-                    # Handle video backgrounds - show thumbnail or placeholder
-                    self._set_video_background(image_path)
-                    
-                elif background_type == 'gif':
-                    # Handle GIF backgrounds - could show first frame or placeholder
-                    pixmap = QPixmap(image_path)
-                    if not pixmap.isNull():
-                        scaled_pixmap = pixmap.scaled(
-                            int(self.device_width * self.preview_scale),
-                            int(self.device_height * self.preview_scale)
-                        )
-                        scene.setBackgroundBrush(QBrush(scaled_pixmap))
-                    else:
-                        self.logger.warning(f"Failed to load GIF: {image_path}")
-                        self._set_color_background(preview_manager)
-                else:
-                    # Unknown type, try as image
-                    pixmap = QPixmap(image_path)
-                    if not pixmap.isNull():
-                        scaled_pixmap = pixmap.scaled(
-                            int(self.device_width * self.preview_scale),
-                            int(self.device_height * self.preview_scale)
-                        )
-                        scene.setBackgroundBrush(QBrush(scaled_pixmap))
-                    else:
-                        self._set_color_background(preview_manager)
-            else:
-                # No image path, use color background
+            # Clear any existing background first
+            scene.setBackgroundBrush(QBrush())
+            
+            # Check if background image should be shown
+            show_image = getattr(preview_manager, 'show_background_image', True)
+            self.logger.info(f"Setting background, show_image: {show_image}, image_path: {image_path}")
+            if not show_image or not image_path or not os.path.exists(image_path):
+                # Use the background color instead of white
                 self._set_color_background(preview_manager)
+                return
+            
+            # Ensure absolute path for image loading
+            # image_path = os.path.abspath(image_path)
+            
+            # Determine background type
+            background_type = getattr(preview_manager, 'background_type', 'image')
+            self.logger.info(f"Setting background for {image_path}, type: {background_type}")
+            
+            if background_type == 'image':
+                # Handle image backgrounds
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(
+                        int(self.device_width * self.preview_scale),
+                        int(self.device_height * self.preview_scale)
+                    )
+                    scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                    self.logger.info(f"Successfully loaded background image: {image_path}")
+                else:
+                    self.logger.warning(f"Failed to load image: {image_path}")
+                    self._set_color_background(preview_manager)
+                    
+            elif background_type == 'video':
+                # For videos, show thumbnail from first frame
+                self._set_video_placeholder(image_path)
+                
+            elif background_type == 'gif':
+                # Handle GIF backgrounds - could show first frame or placeholder
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(
+                        int(self.device_width * self.preview_scale),
+                        int(self.device_height * self.preview_scale)
+                    )
+                    scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                else:
+                    self.logger.warning(f"Failed to load GIF: {image_path}")
+                    self._set_color_background(preview_manager)
+            else:
+                # Unknown type, try as image
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(
+                        int(self.device_width * self.preview_scale),
+                        int(self.device_height * self.preview_scale)
+                    )
+                    scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                else:
+                    self._set_color_background(preview_manager)
                 
             # Force update to ensure background is visible
+            scene.update()
+            self.unified_view.view.invalidateScene()
             self.unified_view.view.update()
                 
         except Exception as e:
             self.logger.error(f"Error setting background: {e}")
+    
+    def set_foreground(self, preview_manager, image_path: Optional[str] = None):
+        """Set foreground image"""
+        if not self.unified_view:
+            return
+        
+        try:
+            scene = self.unified_view.scene
+            if not scene:
+                return
+            
+            # Remove existing foreground item
+            self._remove_foreground_item()
+            
+            if image_path and os.path.exists(image_path):
+                # Create new foreground item
+                from thermalright_lcd_control.gui.widgets.unified.base import ForegroundItem
+                
+                # Position callback to update preview_manager
+                def update_foreground_position(x, y):
+                    preview_manager.foreground_position = (x, y)
+                
+                foreground_item = ForegroundItem(
+                    image_path=image_path,
+                    opacity=getattr(preview_manager, 'foreground_opacity', 1.0),
+                    preview_scale=self.preview_scale,
+                    position_callback=update_foreground_position
+                )
+                
+                # Set position from preview_manager (scale from device coordinates to preview coordinates)
+                pos_x, pos_y = getattr(preview_manager, 'foreground_position', (0, 0))
+                foreground_item.setPos(pos_x, pos_y)
+                
+                # Add to scene
+                scene.addItem(foreground_item)
+                
+                # Store reference
+                self._foreground_item = foreground_item
+                
+                self.logger.info(f"Foreground set: {image_path}")
+            else:
+                # No foreground
+                self._foreground_item = None
+                
+        except Exception as e:
+            self.logger.error(f"Error setting foreground: {e}")
+    
+    def set_foreground_opacity(self, opacity: float):
+        """Set foreground opacity"""
+        if hasattr(self, '_foreground_item') and self._foreground_item:
+            self._foreground_item.set_opacity(opacity)
+    
+    def _remove_foreground_item(self):
+        """Remove existing foreground item from scene"""
+        if hasattr(self, '_foreground_item') and self._foreground_item:
+            if self._foreground_item.scene():
+                self._foreground_item.scene().removeItem(self._foreground_item)
+            self._foreground_item = None
     
     def _set_color_background(self, preview_manager):
         """Set color background from preview_manager"""
@@ -382,6 +453,9 @@ class UnifiedController:
         if not scene:
             return
             
+        # Ensure absolute path
+        video_path = os.path.abspath(video_path)
+        
         try:
             # Try to extract a thumbnail from the video
             import cv2
@@ -427,17 +501,60 @@ class UnifiedController:
             self.logger.error(f"Error creating video thumbnail: {e}")
             self._set_video_placeholder()
     
-    def _set_video_placeholder(self):
-        """Set a placeholder background for videos when thumbnail fails"""
+    def _set_video_placeholder(self, video_path=None):
+        """Set a video thumbnail as background for videos"""
         scene = self.unified_view.scene
         if not scene:
             return
-            
-        # Create a placeholder with dark background
-        placeholder_color = QColor(32, 32, 32)  # Dark gray
-        scene.setBackgroundBrush(QBrush(placeholder_color))
-        
-        self.logger.info("Set video placeholder background")
+
+        try:
+            # Try to extract first frame from video
+            if video_path and os.path.exists(video_path):
+                try:
+                    import cv2
+                    cap = cv2.VideoCapture(video_path)
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        if ret:
+                            # Convert BGR to RGB
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            # Convert to PIL Image
+                            from PIL import Image
+                            pil_image = Image.fromarray(frame_rgb)
+                            # Convert to QPixmap
+                            from PySide6.QtGui import QPixmap, QImage
+                            qimage = QImage(pil_image.tobytes(), pil_image.width, pil_image.height, QImage.Format.Format_RGB888)
+                            pixmap = QPixmap.fromImage(qimage)
+
+                            # Scale to preview size
+                            scaled_pixmap = pixmap.scaled(
+                                int(self.device_width * self.preview_scale),
+                                int(self.device_height * self.preview_scale)
+                            )
+                            scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                            cap.release()
+                            self.logger.info(f"Successfully loaded video thumbnail: {video_path}")
+                            return
+                        cap.release()
+                except ImportError:
+                    self.logger.warning("OpenCV not available for video thumbnail extraction")
+                except Exception as e:
+                    self.logger.warning(f"Failed to extract video thumbnail: {e}")
+
+            # Fallback: Create a placeholder with transparent background
+            from PySide6.QtGui import QPixmap, QImage
+            placeholder_pixmap = QPixmap(int(self.device_width * self.preview_scale),
+                                       int(self.device_height * self.preview_scale))
+            placeholder_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent white
+            scene.setBackgroundBrush(QBrush(placeholder_pixmap))
+
+            self.logger.info("Set transparent video placeholder background")
+
+        except Exception as e:
+            self.logger.error(f"Error setting video placeholder: {e}")
+            # Final fallback to dark gray
+            placeholder_color = QColor(32, 32, 32)  # Dark gray
+            scene.setBackgroundBrush(QBrush(placeholder_color))
     
     # Property accessors for main_window
     @property

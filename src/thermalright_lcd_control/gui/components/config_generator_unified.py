@@ -86,7 +86,10 @@ class ConfigGeneratorUnified:
                     "foreground": {
                         "enabled": preview_manager.is_foreground_enabled() and preview_manager.current_foreground_path is not None,
                         "path": preview_manager.current_foreground_path or "",
-                        "position": {"x": 0, "y": 0},
+                        "position": {
+                            "x": int(getattr(preview_manager, 'foreground_position', (0, 0))[0] / getattr(preview_manager, 'preview_scale', 1.0)),
+                            "y": int(getattr(preview_manager, 'foreground_position', (0, 0))[1] / getattr(preview_manager, 'preview_scale', 1.0))
+                        },
                         "alpha": preview_manager.foreground_opacity
                     },
                     "metrics": {

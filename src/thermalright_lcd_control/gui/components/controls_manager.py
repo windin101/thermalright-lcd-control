@@ -44,7 +44,6 @@ class ControlsManager:
         controls_layout.addWidget(self._create_opacity_controls())
         controls_layout.addWidget(self._create_screen_controls())
         controls_layout.addWidget(self._create_text_style_controls())
-        controls_layout.addWidget(self._create_action_controls())
 
         scroll_area.setWidget(controls_container)
         return scroll_area

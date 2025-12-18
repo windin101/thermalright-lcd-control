@@ -123,16 +123,28 @@ class PreviewManager:
             self.preview_label.setText(f"Error updating\npreview:\n{str(e)}")
 
     def pil_image_to_qpixmap(self, pil_image):
-        """Convert PIL Image to QPixmap"""
+        """Convert PIL Image to QPixmap with rotation applied"""
         try:
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
 
+            # Apply rotation to PIL image based on current_rotation
+            current_rotation = getattr(self, 'current_rotation', 0)
+            print(f"DEBUG: Applying rotation {current_rotation} degrees to image")
+            if current_rotation:
+                # PIL rotate uses counterclockwise, so negate for clockwise rotation
+                print(f"DEBUG: Rotating PIL image by {-current_rotation} degrees")
+                pil_image = pil_image.rotate(-current_rotation)
+
             width, height = pil_image.size
+            print(f"DEBUG: Final image size: {width}x{height}")
             image_data = pil_image.tobytes("raw", "RGB")
             qimage = QImage(image_data, width, height, QImage.Format_RGB888)
-            return QPixmap.fromImage(qimage)
-        except Exception:
+            pixmap = QPixmap.fromImage(qimage)
+            print(f"DEBUG: Created QPixmap: {pixmap.width()}x{pixmap.height()}")
+            return pixmap
+        except Exception as e:
+            print(f"DEBUG: Error in pil_image_to_qpixmap: {e}")
             return None
 
     def set_background(self, file_path: str):

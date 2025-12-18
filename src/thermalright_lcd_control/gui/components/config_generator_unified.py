@@ -67,9 +67,11 @@ class ConfigGeneratorUnified:
     def generate_config_data(self, preview_manager, text_style) -> Optional[dict]:
         """Generate config dict from preview manager"""
         try:
+            rotation = getattr(preview_manager, 'current_rotation', 0)
+            print(f"DEBUG: Config generation - rotation = {rotation}")
             config_data = {
                 "display": {
-                    "rotation": preview_manager.current_rotation,
+                    "rotation": rotation,
                     "refresh_interval": getattr(preview_manager, 'refresh_interval', 1.0),
                     "font_family": text_style.font_family,
                     "background": {

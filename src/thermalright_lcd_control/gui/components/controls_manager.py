@@ -31,6 +31,13 @@ class ControlsManager:
         self.metric_checkboxes = {}
         self.metric_label_inputs = {}
         self.metric_unit_inputs = {}
+        
+        # Rotation controls
+        self.rotation_buttons = {}
+        self.no_rotation_btn = None
+        self.rotate_90_btn = None
+        self.rotate_180_btn = None
+        self.rotate_270_btn = None
 
     def create_controls_widget(self) -> QScrollArea:
         """Create and return the controls widget"""
@@ -90,6 +97,50 @@ class ControlsManager:
         screen_group = QGroupBox("Screen Controls")
         screen_layout = QVBoxLayout(screen_group)
         
+        # Rotation controls at the top
+        rotation_layout = QHBoxLayout()
+        rotation_label = QLabel("Rotation:")
+        rotation_label.setFixedWidth(60)
+        rotation_layout.addWidget(rotation_label)
+        
+        # Rotation buttons
+        self.rotation_buttons = {}
+        
+        # No Rotation (0°)
+        self.no_rotation_btn = QPushButton("0°")
+        self.no_rotation_btn.setFixedSize(50, 30)
+        self.no_rotation_btn.setCheckable(True)
+        self.no_rotation_btn.clicked.connect(lambda: self._set_rotation(0))
+        rotation_layout.addWidget(self.no_rotation_btn)
+        self.rotation_buttons[0] = self.no_rotation_btn
+        
+        # 90° Clockwise
+        self.rotate_90_btn = QPushButton("90°")
+        self.rotate_90_btn.setFixedSize(50, 30)
+        self.rotate_90_btn.setCheckable(True)
+        self.rotate_90_btn.clicked.connect(lambda: self._set_rotation(90))
+        rotation_layout.addWidget(self.rotate_90_btn)
+        self.rotation_buttons[90] = self.rotate_90_btn
+        
+        # Upside Down (180°)
+        self.rotate_180_btn = QPushButton("180°")
+        self.rotate_180_btn.setFixedSize(50, 30)
+        self.rotate_180_btn.setCheckable(True)
+        self.rotate_180_btn.clicked.connect(lambda: self._set_rotation(180))
+        rotation_layout.addWidget(self.rotate_180_btn)
+        self.rotation_buttons[180] = self.rotate_180_btn
+        
+        # 90° Counterclockwise (270°)
+        self.rotate_270_btn = QPushButton("270°")
+        self.rotate_270_btn.setFixedSize(50, 30)
+        self.rotate_270_btn.setCheckable(True)
+        self.rotate_270_btn.clicked.connect(lambda: self._set_rotation(270))
+        rotation_layout.addWidget(self.rotate_270_btn)
+        self.rotation_buttons[270] = self.rotate_270_btn
+        
+        rotation_layout.addStretch()
+        screen_layout.addLayout(rotation_layout)
+        
         # Background color picker
         bg_color_layout = QHBoxLayout()
         bg_color_label = QLabel("Background Color:")
@@ -120,6 +171,10 @@ class ControlsManager:
         screen_layout.addWidget(info_label)
         
         screen_layout.addStretch()
+        
+        # Initialize rotation button states
+        self._update_rotation_buttons()
+        
         return screen_group
     
     def _choose_background_color(self):
@@ -161,6 +216,34 @@ class ControlsManager:
             # Update label
             if hasattr(self, 'bg_color_label'):
                 self.bg_color_label.setText(color.name())
+
+    def _set_rotation(self, degrees: int):
+        """Set screen rotation"""
+        print(f"DEBUG: Setting rotation to {degrees} degrees")
+        
+        # Update preview manager rotation
+        self.parent.preview_manager.current_rotation = degrees
+        print(f"DEBUG: preview_manager.current_rotation set to {self.parent.preview_manager.current_rotation}")
+        
+        # Update button states
+        self._update_rotation_buttons()
+        
+        # Force immediate preview refresh with new rotation
+        if hasattr(self.parent.preview_manager, 'update_preview_frame'):
+            print("DEBUG: Calling update_preview_frame")
+            self.parent.preview_manager.update_preview_frame()
+        
+        # Update preview only (don't send to device)
+        if hasattr(self.parent, 'update_preview_only'):
+            print("DEBUG: Calling update_preview_only")
+            self.parent.update_preview_only()
+    
+    def _update_rotation_buttons(self):
+        """Update rotation button checked states"""
+        current_rotation = getattr(self.parent.preview_manager, 'current_rotation', 0)
+        
+        for rotation, button in self.rotation_buttons.items():
+            button.setChecked(rotation == current_rotation)
 
     def _create_text_style_controls(self) -> QGroupBox:
         """Create text style controls"""

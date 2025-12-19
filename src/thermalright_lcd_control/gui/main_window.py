@@ -215,7 +215,7 @@ class MediaPreviewUI(QMainWindow):
             self.preview_manager.is_background_enabled = is_background_enabled
             
             def is_foreground_enabled():
-                return self.preview_manager.current_foreground_path is not None
+                return self.preview_manager.current_foreground_path is not None and getattr(self.preview_manager, 'show_foreground_image', True)
             self.preview_manager.is_foreground_enabled = is_foreground_enabled
             
             def determine_background_type(path):
@@ -270,7 +270,8 @@ class MediaPreviewUI(QMainWindow):
         self.preview_manager.initialize_default_background(self.backgrounds_dir)
         
         # Set default background
-        self.unified.set_background(self.preview_manager, None)
+        self.logger.info(f"Setting initial background with path: {self.preview_manager.current_background_path}")
+        self.unified.set_background(self.preview_manager, self.preview_manager.current_background_path)
     
     def closeEvent(self, event):
         """Handle application close - cleanup resources"""
@@ -329,6 +330,9 @@ class MediaPreviewUI(QMainWindow):
         # Update preview manager
         if hasattr(self, 'preview_manager'):
             self.preview_manager.current_background_path = file_path
+            # When a background is selected, it should be shown!
+            self.preview_manager.show_background_image = True
+            self.logger.info(f"Set show_background_image to True")
             
             # Determine background type from file extension
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
@@ -342,8 +346,8 @@ class MediaPreviewUI(QMainWindow):
             if hasattr(self, 'unified'):
                 self.unified.set_background(self.preview_manager, file_path)
             
-            # Update preview only (don't send to device)
-            self.update_preview_only()
+            # DON'T call update_preview_only() - set_background() already updates the display
+            # self.update_preview_only()
     
     def _on_media_added(self, file_path: str):
         """Handle new media added via media tab"""
@@ -357,13 +361,20 @@ class MediaPreviewUI(QMainWindow):
         # Update preview manager
         if hasattr(self, 'preview_manager'):
             self.preview_manager.current_foreground_path = file_path
+            # When a foreground is selected, it should be shown!
+            self.preview_manager.show_foreground_image = True
+            self.logger.info(f"Set show_foreground_image to True")
             
             # Update unified controller foreground
             if hasattr(self, 'unified'):
                 self.unified.set_foreground(self.preview_manager, file_path)
             
-            # Update preview only (don't send to device)
-            self.update_preview_only()
+            # Update controls manager foreground checkbox
+            if hasattr(self, 'controls_manager'):
+                self.controls_manager._update_fg_image_checkbox()
+            
+            # DON'T call update_preview_only() - set_foreground() already updates the display
+            # self.update_preview_only()
     
     def _on_widget_added(self, widget_id: str, widget_type: str, properties: dict):
         """Handle new widget added via widgets tab"""
@@ -548,6 +559,10 @@ class MediaPreviewUI(QMainWindow):
             if hasattr(self, 'unified') and hasattr(self, 'preview_manager'):
                 if self.preview_manager.current_background_path:
                     self.unified.set_background(self.preview_manager, self.preview_manager.current_background_path)
+                
+                # Also update foreground if needed
+                if self.preview_manager.current_foreground_path:
+                    self.unified.set_foreground(self.preview_manager, self.preview_manager.current_foreground_path)
             
         except Exception as e:
             self.logger.error(f"Error updating preview: {e}")

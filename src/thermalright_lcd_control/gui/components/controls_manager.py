@@ -176,6 +176,15 @@ class ControlsManager:
         bg_image_layout.addStretch()
         screen_layout.addLayout(bg_image_layout)
         
+        # Foreground image visibility checkbox
+        fg_image_layout = QHBoxLayout()
+        self.show_fg_image_checkbox = QCheckBox("Show Foreground Image")
+        self.show_fg_image_checkbox.setChecked(True)  # Default to showing image
+        self.show_fg_image_checkbox.stateChanged.connect(self._on_fg_image_toggled)
+        fg_image_layout.addWidget(self.show_fg_image_checkbox)
+        fg_image_layout.addStretch()
+        screen_layout.addLayout(fg_image_layout)
+        
         # Screen info
         info_label = QLabel(f"Screen: {self.parent.device_width}x{self.parent.device_height}")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -188,6 +197,9 @@ class ControlsManager:
         
         # Initialize background image checkbox
         self._update_bg_image_checkbox()
+        
+        # Initialize foreground image checkbox
+        self._update_fg_image_checkbox()
         
         return screen_group
     
@@ -265,26 +277,61 @@ class ControlsManager:
     
     def _on_bg_image_toggled(self, state):
         """Handle background image visibility toggle"""
-        show_image = state == Qt.CheckState.Checked
-        self.logger.info(f"Background image checkbox toggled to: {show_image}")
+        # Use isChecked() instead of state parameter since state seems unreliable
+        show_image = self.show_bg_image_checkbox.isChecked()
+        self.logger.info(f"=== BACKGROUND TOGGLE START ===")
+        self.logger.info(f"Background image checkbox toggled. Using isChecked(): {show_image}")
+        self.logger.info(f"Checkbox enabled: {self.show_bg_image_checkbox.isEnabled()}")
+        self.logger.info(f"Checkbox checkable: {self.show_bg_image_checkbox.isCheckable()}")
+        self.logger.info(f"Checkbox isChecked: {self.show_bg_image_checkbox.isChecked()}")
+        self.logger.info(f"State value: {state}, Qt.Checked: {Qt.CheckState.Checked.value}")
         
         # Update preview manager
         self.parent.preview_manager.show_background_image = show_image
+        self.logger.info(f"preview_manager.show_background_image set to: {show_image}")
+        self.logger.info(f"current_background_path: {self.parent.preview_manager.current_background_path}")
         
         # Update unified controller background
         if hasattr(self.parent, 'unified'):
+            self.logger.info(f"Calling set_background with path: {self.parent.preview_manager.current_background_path}")
             self.parent.unified.set_background(self.parent.preview_manager, 
                                              self.parent.preview_manager.current_background_path)
         
-        # Update preview only (don't send to device)
-        if hasattr(self.parent, 'update_preview_only'):
-            self.parent.update_preview_only()
+        self.logger.info(f"=== BACKGROUND TOGGLE END ===")
     
     def _update_bg_image_checkbox(self):
         """Update background image checkbox state"""
         if hasattr(self, 'show_bg_image_checkbox'):
             show_image = getattr(self.parent.preview_manager, 'show_background_image', True)
             self.show_bg_image_checkbox.setChecked(show_image)
+    
+    def _on_fg_image_toggled(self, state):
+        """Handle foreground image visibility toggle"""
+        # Use isChecked() instead of state parameter since state seems unreliable
+        show_image = self.show_fg_image_checkbox.isChecked()
+        self.logger.info(f"=== FOREGROUND TOGGLE START ===")
+        self.logger.info(f"Foreground image checkbox toggled. Using isChecked(): {show_image}")
+        self.logger.info(f"Checkbox isChecked: {self.show_fg_image_checkbox.isChecked()}")
+        self.logger.info(f"State value: {state}, Qt.Checked: {Qt.CheckState.Checked.value}")
+        
+        # Update preview manager
+        self.parent.preview_manager.show_foreground_image = show_image
+        self.logger.info(f"preview_manager.show_foreground_image set to: {show_image}")
+        self.logger.info(f"current_foreground_path: {self.parent.preview_manager.current_foreground_path}")
+        
+        # Update unified controller foreground
+        if hasattr(self.parent, 'unified'):
+            self.logger.info(f"Calling set_foreground with path: {self.parent.preview_manager.current_foreground_path}")
+            self.parent.unified.set_foreground(self.parent.preview_manager, 
+                                             self.parent.preview_manager.current_foreground_path)
+        
+        self.logger.info(f"=== FOREGROUND TOGGLE END ===")
+    
+    def _update_fg_image_checkbox(self):
+        """Update foreground image checkbox state"""
+        if hasattr(self, 'show_fg_image_checkbox'):
+            show_image = getattr(self.parent.preview_manager, 'show_foreground_image', True)
+            self.show_fg_image_checkbox.setChecked(show_image)
 
     def _apply_rotation_to_unified_view(self, degrees: int):
         """Apply rotation transformation to the entire preview container (like a PC monitor)"""

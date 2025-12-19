@@ -287,11 +287,13 @@ class UnifiedController:
     def set_background(self, preview_manager, image_path: Optional[str] = None):
         """Set background image, video, or color"""
         if not self.unified_view:
+            self.logger.warning("No unified view in set_background")
             return
         
         try:
             scene = self.unified_view.scene
             if not scene:
+                self.logger.warning("No scene in set_background")
                 return
             
             # Clear any existing background first
@@ -299,10 +301,28 @@ class UnifiedController:
             
             # Check if background image should be shown
             show_image = getattr(preview_manager, 'show_background_image', True)
+            self.logger.info(f"=== SET_BACKGROUND START ===")
             self.logger.info(f"Setting background, show_image: {show_image}, image_path: {image_path}")
-            if not show_image or not image_path or not os.path.exists(image_path):
-                # Use the background color instead of white
+            
+            # If we shouldn't show image, use color background
+            if not show_image:
+                self.logger.info("show_image is False, using color background")
                 self._set_color_background(preview_manager)
+                self.logger.info(f"=== SET_BACKGROUND END (color) ===")
+                return
+            
+            # If we should show image but no path is provided, also use color background
+            if not image_path:
+                self.logger.warning("Background image should be shown but no image path provided")
+                self._set_color_background(preview_manager)
+                self.logger.info(f"=== SET_BACKGROUND END (no path) ===")
+                return
+            
+            # Check if file exists
+            if not os.path.exists(image_path):
+                self.logger.warning(f"Background image file does not exist: {image_path}")
+                self._set_color_background(preview_manager)
+                self.logger.info(f"=== SET_BACKGROUND END (file not found) ===")
                 return
             
             # Ensure absolute path for image loading
@@ -339,6 +359,19 @@ class UnifiedController:
                         int(self.device_height * self.preview_scale)
                     )
                     scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                    
+                    # Force update to ensure background is visible
+                    scene.update()
+                    self.unified_view.view.invalidateScene()
+                    self.unified_view.view.update()
+                    
+                    # Force event processing to ensure updates are applied
+                    from PySide6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                    
+                    # Force repaint to ensure immediate visual update
+                    self.unified_view.view.repaint()
+                    
                 else:
                     self.logger.warning(f"Failed to load GIF: {image_path}")
                     self._set_color_background(preview_manager)
@@ -351,6 +384,19 @@ class UnifiedController:
                         int(self.device_height * self.preview_scale)
                     )
                     scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                    
+                    # Force update to ensure background is visible
+                    scene.update()
+                    self.unified_view.view.invalidateScene()
+                    self.unified_view.view.update()
+                    
+                    # Force event processing to ensure updates are applied
+                    from PySide6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                    
+                    # Force repaint to ensure immediate visual update
+                    self.unified_view.view.repaint()
+                    
                 else:
                     self._set_color_background(preview_manager)
                 
@@ -358,55 +404,167 @@ class UnifiedController:
             scene.update()
             self.unified_view.view.invalidateScene()
             self.unified_view.view.update()
+            
+            # Force event processing to ensure updates are applied
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Force repaint to ensure immediate visual update
+            self.unified_view.view.repaint()
                 
         except Exception as e:
             self.logger.error(f"Error setting background: {e}")
     
     def set_foreground(self, preview_manager, image_path: Optional[str] = None):
         """Set foreground image"""
+        self.logger.info(f"=== SET_FOREGROUND ENTRY ===")
+        self.logger.info(f"unified_view exists: {hasattr(self, 'unified_view')}")
         if not self.unified_view:
+            self.logger.warning("No unified view in set_foreground")
             return
         
         try:
+            self.logger.info(f"unified_view.scene exists: {hasattr(self.unified_view, 'scene')}")
             scene = self.unified_view.scene
             if not scene:
+                self.logger.warning("No scene in set_foreground")
                 return
             
             # Remove existing foreground item
+            self.logger.info(f"Removing existing foreground item")
             self._remove_foreground_item()
             
-            if image_path and os.path.exists(image_path):
+            # Check if foreground image should be shown
+            show_image = getattr(preview_manager, 'show_foreground_image', True)
+            self.logger.info(f"=== SET_FOREGROUND START ===")
+            self.logger.info(f"Setting foreground, show_image: {show_image}, image_path: {image_path}")
+            
+            # If we shouldn't show image, don't create foreground item
+            if not show_image:
+                self.logger.info("show_image is False, not creating foreground item")
+                # Force update
+                scene.update()
+                self.unified_view.view.invalidateScene()
+                self.unified_view.view.update()
+                
+                # Force event processing
+                from PySide6.QtWidgets import QApplication
+                QApplication.processEvents()
+                
+                # Force repaint to ensure immediate visual update
+                self.unified_view.view.repaint()
+                self.logger.info(f"=== SET_FOREGROUND END (not shown) ===")
+                return
+            
+            # If we should show image but no path is provided, don't create foreground item
+            if not image_path:
+                self.logger.warning("Foreground image should be shown but no image path provided")
+                # Force update
+                scene.update()
+                self.unified_view.view.invalidateScene()
+                self.unified_view.view.update()
+                
+                # Force event processing
+                from PySide6.QtWidgets import QApplication
+                QApplication.processEvents()
+                
+                # Force repaint to ensure immediate visual update
+                self.unified_view.view.repaint()
+                self.logger.info(f"=== SET_FOREGROUND END (no path) ===")
+                return
+            
+            # Check if file exists
+            self.logger.info(f"Checking if file exists: {image_path}")
+            if not os.path.exists(image_path):
+                self.logger.warning(f"Foreground image file does not exist: {image_path}")
+                # Force update
+                scene.update()
+                self.unified_view.view.invalidateScene()
+                self.unified_view.view.update()
+                
+                # Force event processing
+                from PySide6.QtWidgets import QApplication
+                QApplication.processEvents()
+                
+                # Force repaint to ensure immediate visual update
+                self.unified_view.view.repaint()
+                self.logger.info(f"=== SET_FOREGROUND END (file not found) ===")
+                return
                 # Create new foreground item
+            self.logger.info(f"Attempting to import ForegroundItem")
+            try:
                 from thermalright_lcd_control.gui.widgets.unified.base import ForegroundItem
-                
-                # Position callback to update preview_manager
-                def update_foreground_position(x, y):
-                    preview_manager.foreground_position = (x, y)
-                
+                self.logger.info(f"ForegroundItem import successful")
+            except ImportError as e:
+                self.logger.error(f"Failed to import ForegroundItem: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # Position callback to update preview_manager
+            def update_foreground_position(x, y):
+                preview_manager.foreground_position = (x, y)
+            
+            self.logger.info(f"Creating ForegroundItem with path: {image_path}")
+            try:
                 foreground_item = ForegroundItem(
                     image_path=image_path,
                     opacity=getattr(preview_manager, 'foreground_opacity', 1.0),
                     preview_scale=self.preview_scale,
                     position_callback=update_foreground_position
                 )
-                
-                # Set position from preview_manager (scale from device coordinates to preview coordinates)
-                pos_x, pos_y = getattr(preview_manager, 'foreground_position', (0, 0))
-                foreground_item.setPos(pos_x, pos_y)
-                
-                # Add to scene
-                scene.addItem(foreground_item)
-                
-                # Store reference
-                self._foreground_item = foreground_item
-                
-                self.logger.info(f"Foreground set: {image_path}")
-            else:
-                # No foreground
-                self._foreground_item = None
+                self.logger.info(f"ForegroundItem created successfully")
+                # Check if pixmap loaded successfully
+                if hasattr(foreground_item, '_pixmap'):
+                    if foreground_item._pixmap.isNull():
+                        self.logger.error(f"ForegroundItem pixmap is null! Image failed to load: {image_path}")
+                    else:
+                        self.logger.info(f"ForegroundItem pixmap size: {foreground_item._pixmap.width()}x{foreground_item._pixmap.height()}")
+            except Exception as e:
+                self.logger.error(f"Failed to create ForegroundItem: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # Set position from preview_manager (scale from device coordinates to preview coordinates)
+            pos_x, pos_y = getattr(preview_manager, 'foreground_position', (0, 0))
+            self.logger.info(f"Setting foreground position to: ({pos_x}, {pos_y})")
+            foreground_item.setPos(pos_x, pos_y)
+            self.logger.info(f"Position set successfully")
+            
+            # Add to scene
+            self.logger.info(f"Adding foreground item to scene")
+            scene.addItem(foreground_item)
+            self.logger.info(f"Item added to scene")
+            self.logger.info(f"Scene items count: {len(scene.items())}")
+            
+            # Store reference
+            self._foreground_item = foreground_item
+            self.logger.info(f"Reference stored")
+            
+            # Force update to ensure foreground is visible
+            scene.update()
+            self.unified_view.view.invalidateScene()
+            self.unified_view.view.update()
+            
+            # Force event processing
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Force repaint to ensure immediate visual update
+            self.unified_view.view.repaint()
+            
+            self.logger.info(f"Foreground set: {image_path}")
+            self.logger.info(f"Foreground item created: {foreground_item}")
+            self.logger.info(f"Scene items count: {len(scene.items())}")
+            self.logger.info(f"Foreground opacity: {getattr(preview_manager, 'foreground_opacity', 1.0)}")
+            self.logger.info(f"Foreground position: {getattr(preview_manager, 'foreground_position', (0, 0))}")
+            self.logger.info(f"=== SET_FOREGROUND END (success) ===")
                 
         except Exception as e:
             self.logger.error(f"Error setting foreground: {e}")
+            import traceback
+            traceback.print_exc()
     
     def set_foreground_opacity(self, opacity: float):
         """Set foreground opacity"""
@@ -446,6 +604,18 @@ class UnifiedController:
         
         self.logger.info(f"Final background color: {background_color.name()}")
         scene.setBackgroundBrush(QBrush(background_color))
+        
+        # Force update to ensure background is visible
+        scene.update()
+        self.unified_view.view.invalidateScene()
+        self.unified_view.view.update()
+        
+        # Force event processing to ensure updates are applied
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        # Force repaint to ensure immediate visual update
+        self.unified_view.view.repaint()
     
     def _set_video_background(self, video_path):
         """Set video background - show thumbnail or placeholder"""
@@ -489,6 +659,19 @@ class UnifiedController:
             
             if thumbnail_pixmap:
                 scene.setBackgroundBrush(QBrush(thumbnail_pixmap))
+                
+                # Force update to ensure background is visible
+                scene.update()
+                self.unified_view.view.invalidateScene()
+                self.unified_view.view.update()
+                
+                # Force event processing to ensure updates are applied
+                from PySide6.QtWidgets import QApplication
+                QApplication.processEvents()
+                
+                # Force repaint to ensure immediate visual update
+                self.unified_view.view.repaint()
+                
                 self.logger.info(f"Set video background thumbnail for: {video_path}")
             else:
                 # Fallback to placeholder
@@ -532,6 +715,19 @@ class UnifiedController:
                                 int(self.device_height * self.preview_scale)
                             )
                             scene.setBackgroundBrush(QBrush(scaled_pixmap))
+                            
+                            # Force update to ensure background is visible
+                            scene.update()
+                            self.unified_view.view.invalidateScene()
+                            self.unified_view.view.update()
+                            
+                            # Force event processing to ensure updates are applied
+                            from PySide6.QtWidgets import QApplication
+                            QApplication.processEvents()
+                            
+                            # Force repaint to ensure immediate visual update
+                            self.unified_view.view.repaint()
+                            
                             cap.release()
                             self.logger.info(f"Successfully loaded video thumbnail: {video_path}")
                             return
@@ -547,6 +743,18 @@ class UnifiedController:
                                        int(self.device_height * self.preview_scale))
             placeholder_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent white
             scene.setBackgroundBrush(QBrush(placeholder_pixmap))
+            
+            # Force update to ensure background is visible
+            scene.update()
+            self.unified_view.view.invalidateScene()
+            self.unified_view.view.update()
+            
+            # Force event processing to ensure updates are applied
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Force repaint to ensure immediate visual update
+            self.unified_view.view.repaint()
 
             self.logger.info("Set transparent video placeholder background")
 

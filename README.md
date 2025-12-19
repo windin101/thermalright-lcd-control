@@ -36,6 +36,11 @@ and added the option to select a collection of images to cycle through on the di
 
 ## Changelog
 
+### [1.4.3] - 2025-12-20
+- 🔧 **Graphics Update Fixes**: Enhanced Qt graphics rendering with forced repaints and event processing
+- 🎛️ **Toggle Reliability**: Improved background and foreground image toggle functionality
+- 📦 **Version Management**: Updated project version for release preparation
+
 ### [1.4.1] - 2025-12-19
 - 🎬 **Video Thumbnails**: Preview area now shows actual video frames instead of dark placeholders
 - 🔍 **Transparent Text**: Removed black boxes behind text widgets for better background blending

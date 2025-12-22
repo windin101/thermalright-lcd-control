@@ -24,11 +24,28 @@ class PreviewManager:
         # Display properties
         self.preview_width = 320
         self.preview_height = 240
+        self.device_width = 320
+        self.device_height = 240
         self.current_background_path = None
         self.current_foreground_path = None
         self.foreground_opacity = 0.5
+        self.background_opacity = 1.0
+        self.background_color = {"r": 0, "g": 0, "b": 0}  # Default black
         self.show_background_image = True  # Whether to show background image or just color
         self.show_foreground_image = True  # Whether to show foreground image
+        self.current_rotation = 0
+        self.refresh_interval = 1.0
+        self.preview_scale = 1.0
+        self.foreground_position = (0, 0)
+
+        # Widget configs
+        self.date_config = None
+        self.time_config = None
+        self.metrics_configs = []
+        self.text_configs = []
+        self.bar_configs = []
+        self.circular_configs = []
+        self.shape_configs = []
 
         # Components
         self.display_generator = None
@@ -112,7 +129,11 @@ class PreviewManager:
                 rotation=getattr(self, 'current_rotation', 0),
                 metrics_configs=getattr(self, 'metrics_configs', []),
                 date_config=getattr(self, 'date_config', None),
-                time_config=getattr(self, 'time_config', None)
+                time_config=getattr(self, 'time_config', None),
+                text_configs=getattr(self, 'text_configs', []),
+                bar_configs=getattr(self, 'bar_configs', []),
+                circular_configs=getattr(self, 'circular_configs', []),
+                shape_configs=getattr(self, 'shape_configs', [])
             )
 
             if self.display_generator:
@@ -192,6 +213,46 @@ class PreviewManager:
         self.current_foreground_path = None
         self.current_background_path = None
         self.initialize_default_background(backgrounds_dir)
+
+    def update_widget_configs(self, date_config=None, time_config=None, metrics_configs=None,
+                            text_configs=None, bar_configs=None, circular_configs=None,
+                            shape_configs=None, force_update=False):
+        """Update widget configurations and recreate display generator"""
+        try:
+            # Update widget configs
+            if date_config is not None:
+                self.date_config = date_config
+            if time_config is not None:
+                self.time_config = time_config
+            if metrics_configs is not None:
+                self.metrics_configs = metrics_configs
+            if text_configs is not None:
+                self.text_configs = text_configs
+            if bar_configs is not None:
+                self.bar_configs = bar_configs
+            if circular_configs is not None:
+                self.circular_configs = circular_configs
+            if shape_configs is not None:
+                self.shape_configs = shape_configs
+            
+            # Recreate display generator with new configs
+            if force_update or self.display_generator:
+                self.create_display_generator()
+                
+        except Exception as e:
+            self.preview_label.setText(f"Error updating\nwidget configs:\n{str(e)}")
+
+    def is_background_enabled(self):
+        """Check if background is enabled"""
+        return self.show_background_image and self.current_background_path is not None
+
+    def is_foreground_enabled(self):
+        """Check if foreground is enabled"""
+        return self.show_foreground_image and self.current_foreground_path is not None
+
+    def get_background_scale_mode(self):
+        """Get background scale mode"""
+        return "scaled_fill"  # Default scale mode
 
     def cleanup(self):
         """Cleanup resources"""

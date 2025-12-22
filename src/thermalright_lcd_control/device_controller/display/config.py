@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, List, Tuple
 
+# Import unified config classes
+from .config_unified import BarGraphConfig, CircularGraphConfig, ShapeConfig
+
 
 class BackgroundType(Enum):
     """Supported background types"""
@@ -75,6 +78,24 @@ class DisplayConfig:
     # Time configuration
     time_config: Optional[TextConfig] = None
 
+    # Text configurations (for custom text widgets)
+    text_configs: List[TextConfig] = None
+
+    # Graph configurations
+    bar_configs: List[BarGraphConfig] = None
+    circular_configs: List[CircularGraphConfig] = None
+
+    # Shape configurations
+    shape_configs: List[ShapeConfig] = None
+
     def __post_init__(self):
         if self.metrics_configs is None:
             self.metrics_configs = []
+        if self.text_configs is None:
+            self.text_configs = []
+        if self.bar_configs is None:
+            self.bar_configs = []
+        if self.circular_configs is None:
+            self.circular_configs = []
+        if self.shape_configs is None:
+            self.shape_configs = []

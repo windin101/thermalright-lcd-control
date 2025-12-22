@@ -131,7 +131,7 @@ class PropertyEditor(QWidget):
                               'grid_color', 'show_grid']:
                 visual_props[prop_name] = prop_value
             elif prop_name in ['text', 'date_format', 'metric_type', 'data',
-                              'orientation', 'chart_type']:
+                              'orientation', 'chart_type', 'value_format', 'metric_name']:
                 data_props[prop_name] = prop_value
             else:
                 basic_props[prop_name] = prop_value
@@ -230,7 +230,7 @@ class PropertyEditor(QWidget):
             return color_button
         
         elif prop_name in ['font_family', 'date_format', 'metric_type', 'orientation',
-                          'chart_type', 'value_format']:
+                          'chart_type', 'value_format', 'metric_name']:
             # String properties (some with limited choices)
             if prop_name == 'orientation' and self._current_widget:
                 # Bar graph orientation
@@ -244,6 +244,35 @@ class PropertyEditor(QWidget):
                 # Chart type
                 combo = QComboBox()
                 combo.addItems(['pie', 'donut'])
+                combo.setCurrentText(str(prop_value))
+                combo.currentTextChanged.connect(lambda: self._on_property_changed())
+                return combo
+            
+            elif prop_name == 'value_format' and self._current_widget:
+                # Value format for graphs
+                combo = QComboBox()
+                format_options = [
+                    '{:.0f}',    # No decimals
+                    '{:.1f}',    # 1 decimal
+                    '{:.2f}',    # 2 decimals
+                    '{:.0%}',    # Percentage, no decimals
+                    '{:.1%}',    # Percentage, 1 decimal
+                    '{:.2%}',    # Percentage, 2 decimals
+                ]
+                combo.addItems(format_options)
+                combo.setCurrentText(str(prop_value))
+                combo.currentTextChanged.connect(lambda: self._on_property_changed())
+                return combo
+            
+            elif prop_name == 'metric_name' and self._current_widget:
+                # Metric name for graphs
+                combo = QComboBox()
+                metric_options = [
+                    'cpu_temperature', 'gpu_temperature',
+                    'cpu_usage', 'gpu_usage',
+                    'cpu_frequency', 'gpu_frequency'
+                ]
+                combo.addItems(metric_options)
                 combo.setCurrentText(str(prop_value))
                 combo.currentTextChanged.connect(lambda: self._on_property_changed())
                 return combo

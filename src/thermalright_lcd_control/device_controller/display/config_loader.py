@@ -7,6 +7,7 @@ from typing import Dict, Any, Tuple
 import yaml
 
 from .config import DisplayConfig, BackgroundType, MetricConfig, TextConfig
+from .config_unified import CircularGraphConfig, BarGraphConfig
 from ...common.logging_config import LoggerConfig
 from ...gui.utils.path_resolver import get_path_resolver
 
@@ -65,6 +66,67 @@ class ConfigLoader:
             enabled=text_data.get("enabled", True)
         )
 
+    def _parse_circular_graph_config(self, graph_data: Dict[str, Any]) -> CircularGraphConfig:
+        """Parse a circular graph configuration from YAML data"""
+        return CircularGraphConfig(
+            position=(
+                graph_data["position"]["x"],
+                graph_data["position"]["y"]
+            ),
+            radius=graph_data["radius"],
+            color=self._hex_to_rgba(graph_data["color"]),
+            enabled=graph_data.get("enabled", True),
+            min_value=graph_data.get("min_value", 0.0),
+            max_value=graph_data.get("max_value", 100.0),
+            show_value=graph_data.get("show_value", True),
+            show_label=graph_data.get("show_label", True),
+            label=graph_data.get("label", ""),
+            metric_name=graph_data.get("metric_name", "cpu_usage"),
+            thickness=graph_data.get("thickness", 8),
+            start_angle=graph_data.get("start_angle", 135),
+            sweep_angle=graph_data.get("sweep_angle", 270),
+            rotation=graph_data.get("rotation", 0),
+            fill_color=self._hex_to_rgba(graph_data["fill_color"]) if "fill_color" in graph_data and graph_data["fill_color"] else None,
+            background_color=self._hex_to_rgba(graph_data["background_color"]) if "background_color" in graph_data and graph_data["background_color"] else None,
+            border_color=self._hex_to_rgba(graph_data["border_color"]) if "border_color" in graph_data and graph_data["border_color"] else None,
+            show_border=graph_data.get("show_border", False),
+            border_width=graph_data.get("border_width", 1),
+            show_percentage=graph_data.get("show_percentage", True)
+        )
+
+    def _parse_bar_graph_config(self, graph_data: Dict[str, Any]) -> BarGraphConfig:
+        """Parse a bar graph configuration from YAML data"""
+        self.logger.debug(f"Parsing bar graph config: {graph_data}")
+        try:
+            config = BarGraphConfig(
+                position=(
+                    graph_data["position"]["x"],
+                    graph_data["position"]["y"]
+                ),
+                width=graph_data["width"],
+                height=graph_data["height"],
+                color=self._hex_to_rgba(graph_data["color"]),
+                enabled=graph_data.get("enabled", True),
+                min_value=graph_data.get("min_value", 0.0),
+                max_value=graph_data.get("max_value", 100.0),
+                show_value=graph_data.get("show_value", True),
+                show_label=graph_data.get("show_label", True),
+                label=graph_data.get("label", ""),
+                metric_name=graph_data.get("metric_name", "cpu_usage"),
+                orientation=graph_data.get("orientation", "vertical"),
+                fill_color=self._hex_to_rgba(graph_data["fill_color"]) if "fill_color" in graph_data and graph_data["fill_color"] else None,
+                background_color=self._hex_to_rgba(graph_data["background_color"]) if "background_color" in graph_data and graph_data["background_color"] else None,
+                border_color=self._hex_to_rgba(graph_data["border_color"]) if "border_color" in graph_data and graph_data["border_color"] else None,
+                show_border=graph_data.get("show_border", False),
+                border_width=graph_data.get("border_width", 1),
+                show_percentage=graph_data.get("show_percentage", True)
+            )
+            self.logger.debug(f"Created BarGraphConfig: min_value={config.min_value}, max_value={config.max_value}")
+            return config
+        except Exception as e:
+            self.logger.error(f"Error parsing bar graph config: {e}")
+            raise
+
     def load_config(self, config_path: str, width: int, height: int) -> DisplayConfig:
         """Load configuration from YAML file"""
         config_file = Path(config_path)
@@ -103,6 +165,21 @@ class ConfigLoader:
         time_config = None
         if display_data["time"]["enabled"]:
             time_config = self._parse_text_config(display_data["time"])
+
+        # Parse circular graph configurations
+        circular_configs = []
+        if "circular_graphs" in display_data and display_data["circular_graphs"]:
+            for graph_data in display_data["circular_graphs"]:
+                if graph_data.get("enabled", True):
+                    circular_configs.append(self._parse_circular_graph_config(graph_data))
+
+        # Parse bar graph configurations
+        bar_configs = []
+        if "bar_graphs" in display_data and display_data["bar_graphs"]:
+            for graph_data in display_data["bar_graphs"]:
+                if graph_data.get("enabled", True):
+                    bar_configs.append(self._parse_bar_graph_config(graph_data))
+
         # Parse foreground configuration
         foreground_path = None
         foreground_position = (0, 0)
@@ -138,6 +215,8 @@ class ConfigLoader:
             metrics_configs=metrics_configs,
             date_config=date_config,
             time_config=time_config,
+            circular_configs=circular_configs,
+            bar_configs=bar_configs,
             rotation=rotation
         )
 

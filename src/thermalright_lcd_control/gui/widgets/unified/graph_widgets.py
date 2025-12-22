@@ -329,12 +329,12 @@ class BarGraphWidget(GraphWidget):
             value_format: str = "{:.1f}"  # Format string for values
             max_value: float = None  # Auto-calculated if None
         """
-        # Set bar graph defaults
         kwargs.setdefault('orientation', self.ORIENTATION_VERTICAL)
         kwargs.setdefault('bar_spacing', 0.2)
         kwargs.setdefault('show_values', True)
         kwargs.setdefault('show_labels', True)
         kwargs.setdefault('value_format', "{:.1f}")
+        kwargs.setdefault('metric_name', 'cpu_usage')
         
         super().__init__(widget_name, x, y, width, height, preview_scale, **kwargs)
         
@@ -345,11 +345,33 @@ class BarGraphWidget(GraphWidget):
         self._show_labels = kwargs.get('show_labels', True)
         self._value_format = kwargs.get('value_format', "{:.1f}")
         self._max_value = kwargs.get('max_value')
+        self._metric_name = kwargs.get('metric_name', 'cpu_usage')
+        
+        # Set sample data based on metric for preview
+        self._set_sample_data_for_metric()
         
         # Update widget type
         self._widget_type = "bar_graph"
         
         logger.debug(f"BarGraphWidget '{widget_name}' created ({self._orientation})")
+    
+    def _set_sample_data_for_metric(self):
+        """Set sample data for preview based on metric type."""
+        if self._metric_name == 'cpu_usage':
+            self._data = [{'value': 45.0, 'label': 'CPU', 'color': (100, 200, 100, 255)}]
+        elif self._metric_name == 'gpu_usage':
+            self._data = [{'value': 30.0, 'label': 'GPU', 'color': (100, 100, 200, 255)}]
+        elif self._metric_name == 'cpu_temperature':
+            self._data = [{'value': 65.0, 'label': 'CPU Temp', 'color': (200, 100, 100, 255)}]
+        elif self._metric_name == 'gpu_temperature':
+            self._data = [{'value': 55.0, 'label': 'GPU Temp', 'color': (200, 100, 100, 255)}]
+        elif self._metric_name == 'cpu_frequency':
+            self._data = [{'value': 3.2, 'label': 'CPU Freq', 'color': (100, 200, 200, 255)}]
+        elif self._metric_name == 'gpu_frequency':
+            self._data = [{'value': 1.5, 'label': 'GPU Freq', 'color': (100, 200, 200, 255)}]
+        else:
+            # Default sample data
+            self._data = [{'value': 50.0, 'label': self._metric_name.replace('_', ' ').title(), 'color': (150, 150, 150, 255)}]
     
     # ==================== Bar Graph Properties ====================
     
@@ -415,6 +437,20 @@ class BarGraphWidget(GraphWidget):
         """Set value format string."""
         if self._value_format != value:
             self._value_format = value
+            self.update()
+            self.propertiesChanged.emit(self.get_properties())
+    
+    @Property(str)
+    def metric_name(self) -> str:
+        """Get metric name."""
+        return self._metric_name
+    
+    @metric_name.setter
+    def metric_name(self, value: str):
+        """Set metric name."""
+        if self._metric_name != value:
+            self._metric_name = value
+            self._set_sample_data_for_metric()  # Update sample data
             self.update()
             self.propertiesChanged.emit(self.get_properties())
     
@@ -603,8 +639,12 @@ class BarGraphWidget(GraphWidget):
             'show_labels': self._show_labels,
             'value_format': self._value_format,
             'max_value': self._max_value,
+            'metric_name': self._metric_name,
             'widget_type': self._widget_type,  # Override parent
         })
+        # Remove data since bar graphs use metrics
+        if 'data' in props:
+            del props['data']
         return props
     
     def set_properties(self, properties: Dict[str, Any]):
@@ -621,8 +661,17 @@ class BarGraphWidget(GraphWidget):
         if 'value_format' in properties:
             self.value_format = properties['value_format']
         if 'max_value' in properties:
-            self._max_value = properties['max_value']
+            # Ensure max_value is a float or None
+            max_val = properties['max_value']
+            if max_val is not None and not isinstance(max_val, (int, float)):
+                try:
+                    max_val = float(max_val)
+                except (ValueError, TypeError):
+                    max_val = None
+            self._max_value = max_val
             self.update()
+        if 'metric_name' in properties:
+            self.metric_name = properties['metric_name']
         
         # Call parent for graph properties
         super().set_properties(properties)
@@ -662,6 +711,7 @@ class CircularGraphWidget(GraphWidget):
         kwargs.setdefault('show_percentages', True)
         kwargs.setdefault('exploded', False)
         kwargs.setdefault('explode_distance', 10.0)
+        kwargs.setdefault('metric_name', 'cpu_usage')
         
         # Ensure square dimensions for circular chart
         if width != height:
@@ -676,11 +726,33 @@ class CircularGraphWidget(GraphWidget):
         self._show_percentages = kwargs.get('show_percentages', True)
         self._exploded = kwargs.get('exploded', False)
         self._explode_distance = kwargs.get('explode_distance', 10.0)
+        self._metric_name = kwargs.get('metric_name', 'cpu_usage')
+        
+        # Set sample data based on metric for preview
+        self._set_sample_data_for_metric()
         
         # Update widget type
         self._widget_type = "circular_graph"
         
         logger.debug(f"CircularGraphWidget '{widget_name}' created ({self._chart_type})")
+    
+    def _set_sample_data_for_metric(self):
+        """Set sample data for preview based on metric type."""
+        if self._metric_name == 'cpu_usage':
+            self._data = [{'value': 45.0, 'label': 'CPU', 'color': (100, 200, 100, 255)}]
+        elif self._metric_name == 'gpu_usage':
+            self._data = [{'value': 30.0, 'label': 'GPU', 'color': (100, 100, 200, 255)}]
+        elif self._metric_name == 'cpu_temperature':
+            self._data = [{'value': 65.0, 'label': 'CPU Temp', 'color': (200, 100, 100, 255)}]
+        elif self._metric_name == 'gpu_temperature':
+            self._data = [{'value': 55.0, 'label': 'GPU Temp', 'color': (200, 100, 100, 255)}]
+        elif self._metric_name == 'cpu_frequency':
+            self._data = [{'value': 3.2, 'label': 'CPU Freq', 'color': (100, 200, 200, 255)}]
+        elif self._metric_name == 'gpu_frequency':
+            self._data = [{'value': 1.5, 'label': 'GPU Freq', 'color': (100, 200, 200, 255)}]
+        else:
+            # Default sample data
+            self._data = [{'value': 50.0, 'label': self._metric_name.replace('_', ' ').title(), 'color': (150, 150, 150, 255)}]
     
     # ==================== Circular Graph Properties ====================
     
@@ -749,6 +821,20 @@ class CircularGraphWidget(GraphWidget):
             self.update()
             self.propertiesChanged.emit(self.get_properties())
     
+    @Property(str)
+    def metric_name(self) -> str:
+        """Get metric name."""
+        return self._metric_name
+    
+    @metric_name.setter
+    def metric_name(self, value: str):
+        """Set metric name."""
+        if self._metric_name != value:
+            self._metric_name = value
+            self._set_sample_data_for_metric()  # Update sample data
+            self.update()
+            self.propertiesChanged.emit(self.get_properties())
+    
     # ==================== Drawing ====================
     
     def _draw_widget(self, painter: QPainter, x: float, y: float,
@@ -772,6 +858,14 @@ class CircularGraphWidget(GraphWidget):
         center_x = width / 2
         center_y = height / 2
         radius = chart_size / 2
+        
+        # Draw background circle first
+        painter.save()
+        painter.setBrush(QBrush(QColor(32, 32, 32, 255)))  # Dark background like bar graphs
+        painter.setPen(QPen(QColor(64, 64, 64, 255), 2))
+        painter.drawEllipse(center_x - radius, center_y - radius,
+                           radius * 2, radius * 2)
+        painter.restore()
         
         # Draw grid if enabled
         if self._show_grid:
@@ -1013,8 +1107,12 @@ class CircularGraphWidget(GraphWidget):
             'show_percentages': self._show_percentages,
             'exploded': self._exploded,
             'explode_distance': self._explode_distance,
+            'metric_name': self._metric_name,
             'widget_type': self._widget_type,  # Override parent
         })
+        # Remove data since circular graphs use metrics
+        if 'data' in props:
+            del props['data']
         return props
     
     def set_properties(self, properties: Dict[str, Any]):
@@ -1030,6 +1128,8 @@ class CircularGraphWidget(GraphWidget):
             self.exploded = properties['exploded']
         if 'explode_distance' in properties:
             self.explode_distance = properties['explode_distance']
+        if 'metric_name' in properties:
+            self.metric_name = properties['metric_name']
         
         # Call parent for graph properties
         super().set_properties(properties)

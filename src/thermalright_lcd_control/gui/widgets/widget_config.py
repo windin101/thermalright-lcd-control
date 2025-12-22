@@ -13,9 +13,7 @@ class WidgetCategory(Enum):
     RAM = "RAM Metrics"
     SYSTEM = "System"
     TEXT = "Text"
-    # Future categories:
-    # SHAPES = "Shapes"
-    # GRAPHS = "Graphs"
+    GRAPHS = "Graphs"
 
 
 @dataclass
@@ -276,6 +274,47 @@ WIDGET_METADATA.update({
     ),
 })
 
+# Graph Widgets
+WIDGET_METADATA.update({
+    "bar_graph": WidgetMetadata(
+        widget_type="bar_graph",
+        display_name="Bar Graph",
+        description="Bar chart for metrics",
+        category=WidgetCategory.GRAPHS,
+        icon_color="#FF6B9D",
+        default_properties={
+            "type": "graph",
+            "graph_type": "bar",
+            "metric_type": "cpu_usage",
+            "label": "CPU Usage",
+            "position": (160, 120),
+            "size": (120, 60),
+            "font_size": 12,
+            "bar_color": "#FF6B6B",
+            "background_color": "#333333",
+        }
+    ),
+    "circular_graph": WidgetMetadata(
+        widget_type="circular_graph",
+        display_name="Circular Graph",
+        description="Pie/donut chart for metrics",
+        category=WidgetCategory.GRAPHS,
+        icon_color="#4ECDC4",
+        default_properties={
+            "type": "graph",
+            "graph_type": "circular",
+            "metric_type": "cpu_usage",
+            "label": "CPU Usage",
+            "position": (160, 120),
+            "size": (80, 80),
+            "font_size": 12,
+            "fill_color": "#4ECDC4",
+            "background_color": "#333333",
+            "show_percentage": True,
+        }
+    ),
+})
+
 
 def get_widgets_by_category() -> Dict[WidgetCategory, List[WidgetMetadata]]:
     """Get all widgets organized by category."""
@@ -306,4 +345,5 @@ CATEGORY_ORDER = [
     WidgetCategory.RAM,
     WidgetCategory.SYSTEM,
     WidgetCategory.TEXT,
+    WidgetCategory.GRAPHS,
 ]

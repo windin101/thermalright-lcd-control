@@ -130,6 +130,32 @@ class ConfigGeneratorUnified:
                     self._config_to_dict(metric_config, "metric")
                 )
             
+            # Add bar graphs if any
+            bar_configs = getattr(preview_manager, 'bar_configs', [])
+            self.logger.info(f"[DEBUG] ConfigGenerator: Found {len(bar_configs)} bar configs")
+            for bar_config in bar_configs:
+                config_data["display"]["bar_graphs"].append(
+                    self._config_to_dict(bar_config, "bar_graph")
+                )
+            
+            # Add circular graphs if any
+            circular_configs = getattr(preview_manager, 'circular_configs', [])
+            self.logger.info(f"[DEBUG] ConfigGenerator: Found {len(circular_configs)} circular configs")
+            for circular_config in circular_configs:
+                config_dict = self._config_to_dict(circular_config, "circular_graph")
+                self.logger.info(f"[DEBUG] ConfigGenerator: Adding circular config: {config_dict}")
+                config_data["display"]["circular_graphs"].append(config_dict)
+            
+            # Debug: Check final config data
+            self.logger.info(f"[DEBUG] ConfigGenerator: Final bar_graphs count: {len(config_data['display']['bar_graphs'])}")
+            self.logger.info(f"[DEBUG] ConfigGenerator: Final circular_graphs count: {len(config_data['display']['circular_graphs'])}")
+            
+            # Add shapes if any
+            for shape_config in getattr(preview_manager, 'shape_configs', []):
+                config_data["display"]["custom_texts"].append(
+                    self._config_to_dict(shape_config, "shape")
+                )
+            
             return config_data
             
         except Exception as e:
@@ -178,6 +204,65 @@ class ConfigGeneratorUnified:
                 "label_offset_y": getattr(config, 'label_offset_y', 0),
                 "label_font_size": getattr(config, 'label_font_size', config.font_size)
             }
+        elif config_type == "bar_graph":
+            return {
+                "enabled": config.enabled,
+                "position": {"x": config.position[0], "y": config.position[1]},
+                "width": config.width,
+                "height": config.height,
+                "color": self._rgba_to_hex(config.color),
+                "min_value": getattr(config, 'min_value', 0.0),
+                "max_value": getattr(config, 'max_value', 100.0),
+                "show_value": getattr(config, 'show_value', True),
+                "show_label": getattr(config, 'show_label', True),
+                "label": getattr(config, 'label', ''),
+                "metric_name": getattr(config, 'metric_name', 'cpu_usage'),
+                "orientation": getattr(config, 'orientation', 'horizontal'),
+                "rotation": getattr(config, 'rotation', 0),
+                "fill_color": self._rgba_to_hex(getattr(config, 'fill_color', config.color)),
+                "background_color": self._rgba_to_hex(getattr(config, 'background_color', (0, 0, 0, 255))),
+                "border_color": self._rgba_to_hex(getattr(config, 'border_color', (255, 255, 255, 255))),
+                "show_border": getattr(config, 'show_border', True),
+                "border_width": getattr(config, 'border_width', 1),
+                "corner_radius": getattr(config, 'corner_radius', 0)
+            }
+        elif config_type == "circular_graph":
+            return {
+                "enabled": config.enabled,
+                "position": {"x": config.position[0], "y": config.position[1]},
+                "radius": config.radius,
+                "color": self._rgba_to_hex(config.color),
+                "min_value": getattr(config, 'min_value', 0.0),
+                "max_value": getattr(config, 'max_value', 100.0),
+                "show_value": getattr(config, 'show_value', True),
+                "show_label": getattr(config, 'show_label', True),
+                "label": getattr(config, 'label', ''),
+                "metric_name": getattr(config, 'metric_name', 'cpu_usage'),
+                "thickness": getattr(config, 'thickness', 8),
+                "start_angle": getattr(config, 'start_angle', 135),
+                "sweep_angle": getattr(config, 'sweep_angle', 270),
+                "rotation": getattr(config, 'rotation', 0),
+                "fill_color": self._rgba_to_hex(getattr(config, 'fill_color', config.color)),
+                "background_color": self._rgba_to_hex(getattr(config, 'background_color', (0, 0, 0, 255))),
+                "border_color": self._rgba_to_hex(getattr(config, 'border_color', (255, 255, 255, 255))),
+                "show_border": getattr(config, 'show_border', False),
+                "border_width": getattr(config, 'border_width', 1),
+                "show_percentage": getattr(config, 'show_percentage', True)
+            }
+        elif config_type == "shape":
+            return {
+                "enabled": config.enabled,
+                "position": {"x": config.position[0], "y": config.position[1]},
+                "width": config.width,
+                "height": config.height,
+                "shape_type": getattr(config, 'shape_type', 'rectangle').value,
+                "color": self._rgba_to_hex(config.color),
+                "filled": getattr(config, 'filled', True),
+                "border_color": self._rgba_to_hex(getattr(config, 'border_color', config.color)),
+                "border_width": getattr(config, 'border_width', 1),
+                "corner_radius": getattr(config, 'corner_radius', 0),
+                "rotation": getattr(config, 'rotation', 0)
+            }
         return {"enabled": False}
     
     def _rgba_to_hex(self, rgba: tuple) -> str:
@@ -210,9 +295,35 @@ class ConfigGeneratorUnified:
     
     def _save_config_file(self, config_path: Path, config_data: dict):
         """Save config dict to YAML file"""
+        self.logger.info(f"[DEBUG] ConfigGenerator: Saving config to {config_path}")
+        self.logger.info(f"[DEBUG] ConfigGenerator: Config data keys: {list(config_data.keys())}")
+        if 'display' in config_data:
+            self.logger.info(f"[DEBUG] ConfigGenerator: Display keys: {list(config_data['display'].keys())}")
+            self.logger.info(f"[DEBUG] ConfigGenerator: bar_graphs: {config_data['display']['bar_graphs']}")
+            self.logger.info(f"[DEBUG] ConfigGenerator: circular_graphs: {config_data['display']['circular_graphs']}")
         config_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write to a temporary file first to check if YAML dump works
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
+            yaml.dump(config_data, temp_file, default_flow_style=False, allow_unicode=True, indent=2)
+            temp_path = temp_file.name
+        
+        # Read back the temp file to verify
+        with open(temp_path, 'r') as temp_file:
+            temp_content = temp_file.read()
+        self.logger.info(f"[DEBUG] ConfigGenerator: Temp file content length: {len(temp_content)}")
+        self.logger.info(f"[DEBUG] ConfigGenerator: Temp file contains 'circular_graphs': {'circular_graphs' in temp_content}")
+        
+        # Now copy to the actual file
         with open(config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True, indent=2)
+            f.write(temp_content)
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        self.logger.info(f"[DEBUG] ConfigGenerator: Config saved successfully to {config_path}")
 
     @staticmethod
     def _get_background_color(preview_manager):

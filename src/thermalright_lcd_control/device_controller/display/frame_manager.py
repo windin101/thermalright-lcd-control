@@ -42,7 +42,14 @@ class FrameManager:
         self.metrics_thread = None
         self.metrics_running = False
         self.metrics_lock = threading.Lock()
-        if len(config.metrics_configs) != 0:
+        # Check if we need metrics collectors
+        needs_metrics = (
+            len(config.metrics_configs) != 0 or
+            any(getattr(bar, 'metric_name', None) for bar in config.bar_configs or []) or
+            any(getattr(circ, 'metric_name', None) for circ in config.circular_configs or [])
+        )
+        
+        if needs_metrics:
             # Initialize metrics collectors
             self.cpu_metrics = CpuMetrics()
             self.gpu_metrics = GpuMetrics()

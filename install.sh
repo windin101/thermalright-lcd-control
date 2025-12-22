@@ -309,9 +309,24 @@ setup_user_configs() {
         sed -i "s|service_config: \"./resources/config\"|service_config: \"$CONFIG_DIR/config\"|g" "$CONFIG_DIR/gui_config.yaml"
     fi
 
-    # Copy themes to user directory
+    # Copy themes to user directory, preserving existing config files
     if [ -d "resources/themes" ]; then
+        # Backup existing config files if they exist
+        if [ -d "$CONFIG_DIR/config" ]; then
+            log_info "Backing up existing config files..."
+            cp -R "$CONFIG_DIR/config" "$CONFIG_DIR/config.backup"
+        fi
+        
+        # Copy themes directory
         cp -R "resources/themes" "$CONFIG_DIR/"
+        
+        # Restore backed up config files
+        if [ -d "$CONFIG_DIR/config.backup" ]; then
+            log_info "Restoring existing config files..."
+            cp -f "$CONFIG_DIR/config.backup"/* "$CONFIG_DIR/config/" 2>/dev/null || true
+            rm -rf "$CONFIG_DIR/config.backup"
+        fi
+        
         log_info "Themes copied to $CONFIG_DIR/themes"
     fi
 

@@ -697,6 +697,7 @@ class UnifiedGraphicsView(QObject):
     widgetAdded = Signal(object)  # Emitted when widget is added (widget object)
     
     def __init__(self, parent=None):
+        super().__init__()
         
         # Create QGraphicsView and scene
         self._view = QGraphicsView(parent)
@@ -868,6 +869,10 @@ class UnifiedGraphicsView(QObject):
         self._scene.update(widget_rect)
         
         logger.debug(f"Added widget '{widget.widget_name}' ({widget.widget_type})")
+        
+        # Emit signal
+        self.widgetAdded.emit(widget)
+        
         return True
     
     def remove_widget(self, widget_name: str) -> bool:

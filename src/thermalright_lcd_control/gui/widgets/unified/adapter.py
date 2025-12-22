@@ -39,6 +39,47 @@ class UnifiedToDisplayAdapter:
         return None
     
     @staticmethod
+    def get_all_configs_from_view(unified_view, scale: float = 1.0) -> dict:
+        """Get all display configs from a unified view"""
+        if not unified_view:
+            return {}
+        
+        configs = {
+            'date_config': None,
+            'time_config': None,
+            'metrics_configs': [],
+            'text_configs': [],
+            'bar_configs': [],
+            'circular_configs': [],
+            'shape_configs': []
+        }
+        
+        # Get all widgets from the view
+        if hasattr(unified_view, 'get_all_widgets'):
+            widgets = unified_view.get_all_widgets()
+            for widget in widgets.values():
+                config = UnifiedToDisplayAdapter.widget_to_display_config(widget, scale)
+                if config:
+                    widget_type = getattr(widget, 'widget_type', '')
+                    
+                    if widget_type == 'date':
+                        configs['date_config'] = config
+                    elif widget_type == 'time':
+                        configs['time_config'] = config
+                    elif widget_type == 'metric':
+                        configs['metrics_configs'].append(config)
+                    elif widget_type in ['text', 'free_text']:
+                        configs['text_configs'].append(config)
+                    elif widget_type == 'bar_graph':
+                        configs['bar_configs'].append(config)
+                    elif widget_type == 'circular_graph':
+                        configs['circular_configs'].append(config)
+                    elif widget_type in ['rectangle', 'rounded_rectangle', 'circle']:
+                        configs['shape_configs'].append(config)
+        
+        return configs
+    
+    @staticmethod
     def _date_to_config(widget, scale: float) -> DateConfig:
         """Convert DateWidget to DateConfig"""
         # Get position in device coordinates
@@ -219,10 +260,10 @@ class UnifiedToDisplayAdapter:
         properties = widget.get_properties()
         
         return BarGraphConfig(
-            metric_name=properties.get('metric_name', 'cpu_usage'),
             position=(device_x, device_y),
             width=properties.get('width', 100),
             height=properties.get('height', 16),
+            color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('fill_color', '#4ECDC4')),
             orientation=properties.get('orientation', 'horizontal'),
             rotation=properties.get('rotation', 0),
             fill_color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('fill_color')),
@@ -246,9 +287,9 @@ class UnifiedToDisplayAdapter:
         properties = widget.get_properties()
         
         return CircularGraphConfig(
-            metric_name=properties.get('metric_name', 'cpu_usage'),
             position=(device_x, device_y),
             radius=properties.get('radius', 40),
+            color=UnifiedToDisplayAdapter._color_to_rgba(properties.get('fill_color', '#4ECDC4')),
             thickness=properties.get('thickness', 8),
             start_angle=properties.get('start_angle', 135),
             sweep_angle=properties.get('sweep_angle', 270),
@@ -271,6 +312,24 @@ class UnifiedToDisplayAdapter:
                 return (color[0], color[1], color[2], 255)
             elif len(color) == 4:
                 return tuple(color)
+        elif isinstance(color, str):
+            # Handle hex color strings like '#RRGGBB' or '#RRGGBBAA'
+            color = color.strip()
+            if color.startswith('#'):
+                color = color[1:]
+                if len(color) == 6:
+                    # RGB hex
+                    r = int(color[0:2], 16)
+                    g = int(color[2:4], 16)
+                    b = int(color[4:6], 16)
+                    return (r, g, b, 255)
+                elif len(color) == 8:
+                    # RGBA hex
+                    r = int(color[0:2], 16)
+                    g = int(color[2:4], 16)
+                    b = int(color[4:6], 16)
+                    a = int(color[6:8], 16)
+                    return (r, g, b, a)
         # Default white
         return (255, 255, 255, 255)
     
@@ -291,10 +350,13 @@ class UnifiedToDisplayAdapter:
         }
         
         widgets = unified_view.get_all_widgets()
-        for widget in widgets.values():
+        print(f"[DEBUG] Adapter: Found {len(widgets)} widgets in view")
+        for widget_name, widget in widgets.items():
+            print(f"[DEBUG] Adapter: Widget {widget_name} type: {getattr(widget, 'widget_type', 'unknown')}")
             config = UnifiedToDisplayAdapter.widget_to_display_config(widget, scale)
             if config:
                 widget_type = getattr(widget, 'widget_type', '')
+                print(f"[DEBUG] Adapter: Created config for {widget_name} type: {widget_type}")
                 
                 if widget_type == 'date':
                     configs['date_config'] = config
@@ -306,9 +368,12 @@ class UnifiedToDisplayAdapter:
                     configs['text_configs'].append(config)
                 elif widget_type == 'bar_graph':
                     configs['bar_configs'].append(config)
+                    print(f"[DEBUG] Adapter: Added bar_graph config")
                 elif widget_type == 'circular_graph':
                     configs['circular_configs'].append(config)
+                    print(f"[DEBUG] Adapter: Added circular_graph config")
                 elif widget_type in ['rectangle', 'rounded_rectangle', 'circle']:
                     configs['shape_configs'].append(config)
         
+        print(f"[DEBUG] Adapter: Final configs - bar: {len(configs['bar_configs'])}, circular: {len(configs['circular_configs'])}")
         return configs

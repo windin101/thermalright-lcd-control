@@ -9,8 +9,52 @@ display:
     path: resources/themes/backgrounds/a001.mp4
     scale_mode: scaled_fill
     type: video
-  bar_graphs: []
-  circular_graphs: []
+  bar_graphs:
+    - position:
+        x: 50
+        y: 50
+      width: 100
+      height: 20
+      color: "#ffffffff"
+      enabled: true
+      min_value: 0.0
+      max_value: 100.0
+      show_value: true
+      show_label: true
+      label: "CPU"
+      metric_name: "cpu_usage"
+      orientation: "horizontal"
+      rotation: 0
+      fill_color: "#ffffffff"
+      background_color: "#404040ff"
+      border_color: "#808080ff"
+      show_border: true
+      border_width: 1
+      corner_radius: 0
+      show_percentage: true
+  circular_graphs:
+    - position:
+        x: 200
+        y: 100
+      radius: 40
+      color: "#4ecdc4ff"
+      enabled: true
+      min_value: 0.0
+      max_value: 100.0
+      show_value: true
+      show_label: true
+      label: "CPU"
+      metric_name: "cpu_usage"
+      thickness: 8
+      start_angle: 135
+      sweep_angle: 270
+      rotation: 0
+      fill_color: "#4ecdc4ff"
+      background_color: "#202020ff"
+      border_color: "#808080ff"
+      show_border: false
+      border_width: 1
+      show_percentage: true
   custom_texts: []
   date:
     color: '#ffffffff'

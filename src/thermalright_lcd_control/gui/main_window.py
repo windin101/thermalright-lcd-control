@@ -2,6 +2,7 @@
 CLEAN Main Window - Minimal UI layer that delegates to unified controller.
 Target: Keep under 300 lines.
 """
+import traceback
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
 from PySide6.QtWidgets import QTabWidget, QFrame, QMessageBox
 
@@ -48,6 +49,7 @@ class MediaPreviewUI(QMainWindow):
         self.text_style_manager = TextStyleManager()
         self.text_style = self.text_style_manager.config  # Backward compatibility
         self.config_generator = ConfigGenerator(self.config)
+        self.preview_manager = None  # Will be set in setup_preview_manager
         
         # Unified controller (does ALL the work)
         self.unified = UnifiedController()
@@ -205,6 +207,9 @@ class MediaPreviewUI(QMainWindow):
                 self.preview_manager.bar_configs = bar_configs or []
                 self.preview_manager.circular_configs = circular_configs or []
                 self.preview_manager.shape_configs = shape_configs or []
+                
+                # Recreate display generator with new configs
+                self.preview_manager.create_display_generator()
             
             self.preview_manager.update_widget_configs = update_widget_configs
             
@@ -263,7 +268,7 @@ class MediaPreviewUI(QMainWindow):
         self.preview_manager.shape_configs = []
         
         # Connect unified controller to preview manager
-        self.unified.preview_manager = self.preview_manager
+        self.unified.set_preview_manager(self.preview_manager)
         self.unified.config_generator = self.config_generator
         
         # Initialize default background to create display generator

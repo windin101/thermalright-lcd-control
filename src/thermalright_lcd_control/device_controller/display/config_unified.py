@@ -89,6 +89,17 @@ class BarGraphConfig:
     show_value: bool = True
     show_label: bool = True
     label: str = ""
+    # Additional attributes for full functionality
+    metric_name: str = "cpu_usage"
+    orientation: str = "vertical"
+    rotation: int = 0
+    fill_color: Optional[Tuple[int, int, int, int]] = None
+    background_color: Optional[Tuple[int, int, int, int]] = None
+    border_color: Optional[Tuple[int, int, int, int]] = None
+    show_border: bool = True
+    border_width: int = 1
+    corner_radius: int = 0
+    show_percentage: bool = True
 
 
 @dataclass
@@ -103,6 +114,18 @@ class CircularGraphConfig:
     show_value: bool = True
     show_label: bool = True
     label: str = ""
+    # Additional attributes for full functionality
+    metric_name: str = "cpu_usage"
+    thickness: int = 8
+    start_angle: int = 135
+    sweep_angle: int = 270
+    rotation: int = 0
+    fill_color: Optional[Tuple[int, int, int, int]] = None
+    background_color: Optional[Tuple[int, int, int, int]] = None
+    border_color: Optional[Tuple[int, int, int, int]] = None
+    show_border: bool = False
+    border_width: int = 1
+    show_percentage: bool = True
 
 
 @dataclass

@@ -25,6 +25,7 @@ class UnifiedController:
         self.unified_view = None
         self.unified_integration = None
         self.widgets_tab = None  # Reference to WidgetsTab for sync
+        self.preview_manager = None  # Reference to PreviewManager for config updates
         
         # Metric data manager for live system metrics
         self.metric_manager = get_metric_manager()
@@ -69,6 +70,15 @@ class UnifiedController:
             self.unified_view.widgetDeleted.connect(self._on_widget_deleted)
             self.logger.debug("Connected widgetDeleted signal")
     
+    def set_preview_manager(self, preview_manager):
+        """Set reference to PreviewManager for config updates."""
+        self.preview_manager = preview_manager
+        self.logger.debug("PreviewManager reference set in UnifiedController")
+    
+    def _on_widget_changed(self, widget=None):
+        """Handle widget addition/deletion - update preview manager."""
+        self.update_preview()
+    
     def _on_widget_deleted_from_widget(self, widget_id: str):
         """Handle widget deletion directly from widget signal."""
         print(f"[DEBUG] _on_widget_deleted_from_widget called: {widget_id}")
@@ -99,6 +109,10 @@ class UnifiedController:
             
             # Create unified view
             self.unified_view = UnifiedGraphicsView(preview_area_widget)
+            
+            # Connect signals to update preview manager
+            self.unified_view.widgetAdded.connect(self._on_widget_changed)
+            self.unified_view.widgetDeleted.connect(self._on_widget_changed)
             
             # Connect deletion signal if widgets_tab is set
             if self.widgets_tab and hasattr(self.unified_view, 'widgetDeleted'):
@@ -231,6 +245,13 @@ class UnifiedController:
                 self.unified_view, self.preview_scale
             )
             
+            # Debug logging
+            self.logger.info(f"[DEBUG] Found configs: bar={len(configs.get('bar_configs', []))}, circular={len(configs.get('circular_configs', []))}")
+            if configs.get('bar_configs'):
+                self.logger.info(f"[DEBUG] Bar configs: {[type(c).__name__ for c in configs['bar_configs']]}")
+            if configs.get('circular_configs'):
+                self.logger.info(f"[DEBUG] Circular configs: {[type(c).__name__ for c in configs['circular_configs']]}")
+            
             if hasattr(self, 'preview_manager'):
                 self.preview_manager.update_widget_configs(
                     date_config=configs.get("date_config"),
@@ -242,6 +263,10 @@ class UnifiedController:
                     shape_configs=configs.get("shape_configs", []),
                     force_update=True
                 )
+                
+                # Debug logging after update
+                self.logger.info(f"[DEBUG] PreviewManager bar_configs: {len(getattr(self.preview_manager, 'bar_configs', []))}")
+                self.logger.info(f"[DEBUG] PreviewManager circular_configs: {len(getattr(self.preview_manager, 'circular_configs', []))}")
             
             self.logger.debug("Updated preview manager")
             
@@ -961,8 +986,13 @@ class UnifiedController:
                     # Subscribe for live updates
                     self.metric_manager.subscribe(widget_id, self._create_metric_update_callback(widget))
                     self.logger.info(f"Connected metric widget {widget_id} to live data")
+                elif widget_type == "graph" and hasattr(widget, 'set_data'):
+                    self.logger.info(f"Connecting graph widget {widget_id} to metric manager...")
+                    # Subscribe for live updates with graph-specific callback
+                    self.metric_manager.subscribe(widget_id, self._create_graph_update_callback(widget, properties))
+                    self.logger.info(f"Connected graph widget {widget_id} to live data")
                 else:
-                    self.logger.debug(f"Widget {widget_id} is not a metric widget or doesn't have set_metrics_provider")
+                    self.logger.debug(f"Widget {widget_id} is not a metric or graph widget or doesn't have required methods")
                 
                 # Store widget reference for management
                 if not hasattr(self, 'widgets'):
@@ -1074,5 +1104,40 @@ class UnifiedController:
                 QTimer.singleShot(0, widget._update_metric)
             except Exception as e:
                 self.logger.error(f"Error in metric update callback: {e}")
+        
+        return update_callback
+
+    def _create_graph_update_callback(self, widget, properties):
+        """Create a callback for graph widget updates"""
+        def update_callback():
+            """Update graph widget when metrics change"""
+            try:
+                from PySide6.QtCore import QTimer
+                
+                # Get the metric type from properties
+                metric_type = properties.get('metric_type', 'cpu_usage')
+                
+                # Get current metric value
+                metric_value = self.metric_manager.get_metric_value(metric_type)
+                if metric_value is None:
+                    return
+                
+                # Convert to graph data format
+                graph_data = [{
+                    'value': float(metric_value),
+                    'label': properties.get('label', metric_type),
+                    'color': (100, 200, 255, 255)  # Default blue color
+                }]
+                
+                # Use a single-shot timer to ensure the update happens on the main thread
+                def update_graph():
+                    try:
+                        widget.set_data(graph_data)
+                    except Exception as e:
+                        self.logger.error(f"Error updating graph widget: {e}")
+                
+                QTimer.singleShot(0, update_graph)
+            except Exception as e:
+                self.logger.error(f"Error in graph update callback: {e}")
         
         return update_callback
